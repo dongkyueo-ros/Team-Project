@@ -14,7 +14,7 @@ Parameters:
 # CloudFront는 현재 us-east-1 (버지니아 북부) 리전의 ACM에서 생성된 SSL/TLS 인증서를 사용
 
 # CloudFront 도메인 이름 입력
-  DomainName:
+  DomainNameCloudFront:
     Type: String
     Description: CloudFront Domain name
 
@@ -100,7 +100,7 @@ Resources:
     Type: AWS::Route53::RecordSet
     Properties:
       HostedZoneId: !Ref HostedZoneIdParameter # Route 53에서 호스팅 중인 영역 ID로 변경
-      Name: !Ref DomainName  # 원하는 도메인 이름으로 변경
+      Name: !Ref DomainNameCloudFront  # 원하는 도메인 이름으로 변경
       Type: A
       AliasTarget:
         DNSName: !GetAtt MyCloudFrontDistribution.DomainName
