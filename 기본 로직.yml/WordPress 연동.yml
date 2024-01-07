@@ -1,0 +1,601 @@
+Parameters:
+
+# EC2 KeyPair 이름 지정
+  KeyName:
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instances. Linked to AWS Parameter
+    Type: AWS::EC2::KeyPair::KeyName
+    ConstraintDescription: must be the name of an existing EC2 KeyPair.
+
+# 인스턴스에 사용할 AMI ID
+  LatestAmiId:
+    Description: (DO NOT CHANGE)
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-minimal-kernel-default-x86_64
+    AllowedValues:
+      - /aws/service/ami-amazon-linux-latest/al2023-ami-minimal-kernel-default-x86_64
+
+# RDS1 데이터베이스 마스터 사용자 비밀번호 
+  DBPassword1:
+    Description: RDS Master User Password for DB1
+    Type: String
+    MinLength: 8
+    MaxLength: 20
+    NoEcho: true
+    AllowedPattern: '^[a-zA-Z0-9!@#$%^&*]*$'
+    ConstraintDescription: Should contain at least one special character and only alphanumeric characters.
+
+# RDS2 데이터베이스 마스터 사용자 비밀번호
+  DBPassword2:
+    Description: RDS Master User Password for DB2
+    Type: String
+    MinLength: 8
+    MaxLength: 20
+    NoEcho: true
+    AllowedPattern: '^[a-zA-Z0-9!@#$%^&*]*$'
+    ConstraintDescription: Should contain at least one special character and only alphanumeric characters.
+
+# ALB 도메인 이름 입력
+  DomainNameALB:
+    Type: String
+    Description: ALB Domain name
+
+# Route 53에서 호스팅 중인 영역 ID로 변경
+  HostedZoneIdParameter:
+    Type: String
+    Description: AWS Route 53 Hosted Zone ID
+  
+Resources:
+
+# IAM 역할 생성
+  SSMRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: SSMRole  # IAM 역할 설정
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Action: sts:AssumeRole
+            Principal:
+              Service: ec2.amazonaws.com
+      Policies:  # IAM 정책 설정
+        - PolicyName: SSMParameterReadPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action: ssm:GetParameter
+                Resource: !Sub arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/MyApp/RDS/Endpoint
+# arn:aws:ssm:[해당 리전]:[AWS 계정 ID]:parameter/MyApp/RDS/Endpoint
+
+# IAM 인스턴스 프로필
+  SSMInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      Path: /
+      Roles:
+        - !Ref SSMRole
+
+# VPC 생성
+  MyVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      Tags:
+        - Key: Name
+          Value: My-VPC
+
+# 인터넷 게이트웨이 생성
+  MyIGW:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: My-IGW
+
+# 인터넷 게이트웨이 연결
+  MyIGWAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref MyVPC
+      InternetGatewayId: !Ref MyIGW
+
+# Public 라우팅 테이블 생성
+  PublicRT:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref MyVPC
+      Tags:
+        - Key: Name
+          Value: Public-RT
+
+# Public 라우터 연결
+  DefaultPublicRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PublicRT
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref MyIGW
+
+# Private 라우팅 테이블 생성
+  PrivateRT:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref MyVPC
+      Tags:
+        - Key: Name
+          Value: Private-RT
+
+# Private 라우터 연결
+  DefaultPrivateRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRT
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NATGW
+
+# DBPrivate 라우팅 테이블 생성
+  DBPrivateRT:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref MyVPC
+      Tags:
+        - Key: Name
+          Value: DB-Private-RT
+
+# DBPrivate 라우터 연결
+  DefaultDBPrivateRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref DBPrivateRT
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NATGW
+
+# 탄력적 IP 생성
+  NatEIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: MyVPC
+      Tags:
+        - Key: Name
+          Value: NAT-EIP
+
+# NAT 게이트웨이 생성
+  NATGW:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatEIP.AllocationId
+      SubnetId: !Ref PublicSN1
+      Tags:
+        - Key: Name
+          Value: NAT-GW
+
+# Public 서브넷 생성 (Bastion Host)
+  PublicSN1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: 10.0.0.0/24
+      AvailabilityZone: ap-northeast-2a
+      Tags:
+        - Key: Name
+          Value: Public-SN-1
+
+# Public 서브넷 생성
+  PublicSN2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: ap-northeast-2c
+      Tags:
+        - Key: Name
+          Value: Public-SN-2
+
+# Private 서브넷 생성 (Wordpress)
+  PrivateSN1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone: ap-northeast-2a
+      Tags:
+        - Key: Name
+          Value: Private-SN-1
+
+# Private 서브넷 생성 (Wordpress)
+  PrivateSN2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: 10.0.3.0/24
+      AvailabilityZone: ap-northeast-2c
+      Tags:
+        - Key: Name
+          Value: Private-SN-2
+
+# DBPrivate 서브넷 생성 (DB)
+  DBPrivateSN1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: 10.0.4.0/24
+      AvailabilityZone: ap-northeast-2a
+      Tags:
+        - Key: Name
+          Value: DB-Private-SN-1
+
+# DBPrivate 서브넷 생성 (DB)
+  DBPrivateSN2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref MyVPC
+      CidrBlock: 10.0.5.0/24
+      AvailabilityZone: ap-northeast-2c
+      Tags:
+        - Key: Name
+          Value: DB-Private-SN-2
+
+# Public 라우팅 테이블 서브넷 연결
+  PublicSNRouteTableAssociation1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRT
+      SubnetId: !Ref PublicSN1
+
+# Public 라우팅 테이블 서브넷 연결
+  PublicSNRouteTableAssociation2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRT
+      SubnetId: !Ref PublicSN2
+
+# Private 라우팅 테이블 서브넷 연결
+  PrivateSNRouteTableAssociation1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRT
+      SubnetId: !Ref PrivateSN1
+
+# Private 라우팅 테이블 서브넷 연결
+  PrivateSNRouteTableAssociation2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRT
+      SubnetId: !Ref PrivateSN2
+
+# DBPrivate 라우팅 테이블 서브넷 연결
+  DBPrivateSNRouteTableAssociation1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref DBPrivateRT
+      SubnetId: !Ref DBPrivateSN1
+
+# DBPrivate 라우팅 테이블 서브넷 연결
+  DBPrivateSNRouteTableAssociation2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref DBPrivateRT
+      SubnetId: !Ref DBPrivateSN2
+
+# Public 보안 그룹 생성 | SSH 대상 0.0.0.0/0
+  PublicSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable SSH access via port 22
+      VpcId: !Ref MyVPC
+      Tags:
+        - Key: Name
+          Value: Public-SG
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+
+# Private 보안 그룹 생성 | SSH 대상 Public-SG, ALB-SG
+  PrivateSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Private Security Group
+      VpcId: !Ref MyVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !GetAtt ALBSG.GroupId
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          SourceSecurityGroupId: !GetAtt PublicSG.GroupId
+      Tags:
+        - Key: Name
+          Value: Private-SG
+
+# ALB 보안 그룹 생성 | HTTP 대상 0.0.0.0/0
+  ALBSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: ALB Security Group
+      VpcId: !Ref MyVPC
+      Tags:
+        - Key: Name
+          Value: ALB-SG
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+
+# DBPrivate 보안 그룹 생성 | MySQL 대상 Public-SG, Private-SG
+  DBPrivateSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Security group to allow connections to aws-rds-1 from ELB
+      GroupName: DB-Private-SG
+      VpcId: !Ref MyVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          SourceSecurityGroupId: !Ref PrivateSG
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          SourceSecurityGroupId: !Ref PublicSG
+      Tags:
+        - Key: Name
+          Value: DB-Private-SG
+
+# DB 서브넷 그룹 생성
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnet Group for MariaDB RDS
+      DBSubnetGroupName: DBSubnetGroup
+      SubnetIds:
+        - !Ref DBPrivateSN1
+        - !Ref DBPrivateSN2
+
+# RDS1 생성 (Master)
+  RDS1:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceIdentifier: aws-rds-1
+      DBName: AWS_RDS_1
+      DBInstanceClass: db.t3.micro
+      Engine: mariadb
+      EngineVersion: 10.6.14
+      MasterUsername: root
+      MasterUserPassword: !Ref DBPassword1
+      AllocatedStorage: 8
+      DBSubnetGroupName: !Ref DBSubnetGroup
+      VPCSecurityGroups:
+        - !Ref DBPrivateSG
+      PubliclyAccessible: false
+      AvailabilityZone: ap-northeast-2a
+
+# RDS2 생성 (Slave)
+  RDS2:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      DBInstanceIdentifier: aws-rds-2
+      DBName: AWS_RDS_2
+      DBInstanceClass: db.t3.micro
+      Engine: mariadb
+      EngineVersion: 10.6.14
+      MasterUsername: root
+      MasterUserPassword: !Ref DBPassword2
+      AllocatedStorage: 8
+      VPCSecurityGroups:
+        - !Ref DBPrivateSG
+      PubliclyAccessible: false
+      AvailabilityZone: ap-northeast-2c
+      SourceDBInstanceIdentifier: !Ref RDS1
+
+# RDS Endpoint SSM 저장
+  RDSEndpoint:
+    Type: AWS::SSM::Parameter
+    Properties:
+      Name: /MyApp/RDS/Endpoint
+      Type: String
+      Value: !GetAtt RDS1.Endpoint.Address
+
+# Public Auto Scaling 그룹 시작 구성 리소스
+  LaunchConfigPub:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      InstanceType: t2.micro
+      ImageId: !Ref LatestAmiId
+      KeyName: !Ref KeyName
+      SecurityGroups:
+        - !Ref PublicSG
+      AssociatePublicIpAddress: true
+      UserData:
+        Fn::Base64:
+          !Sub |
+            #!/bin/bash
+            hostnamectl set-hostname "Public-EC2-$(hostname -I)"
+            yum update -y
+            yum -y install httpd
+            systemctl enable --now httpd
+
+# Private Auto Scaling 그룹 시작 구성 리소스 (Wordpress)
+  LaunchConfigPri:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      InstanceType: t2.micro
+      ImageId: !Ref LatestAmiId
+      KeyName: !Ref KeyName
+      IamInstanceProfile: !Ref SSMInstanceProfile
+      SecurityGroups:
+        - !Ref PrivateSG
+      UserData:
+        Fn::Base64:
+          !Sub |
+            #!/bin/bash
+            hostnamectl set-hostname "Private-EC2-$(hostname -I)"
+            yum -y update
+            yum -y install httpd php php-mysqli
+            yum -y install wget unzip amazon-ssm-agent
+            yum -y install mariadb*
+            systemctl enable --now httpd
+            systemctl enable --now mariadb
+            systemctl enable --now amazon-ssm-agent
+
+            chown -R ec2-user:ec2-user /var/www/html
+            mkdir /var/www/html/wordpress
+
+            wget https://wordpress.org/latest.tar.gz
+            tar -xzf latest.tar.gz
+
+            cp -r wordpress /var/www/html
+            cd /var/www/html/wordpress
+            cp wp-config-sample.php wp-config.php
+
+            sed -i "s/database_name_here/AWS_RDS_1/" wp-config.php
+            sed -i "s/username_here/root/" wp-config.php
+            sed -i "s/password_here/qwer1234!/" wp-config.php
+            
+            curl -s https://api.wordpress.org/secret-key/1.1/salt/ >> wp-config.php
+            chown  ec2-user /var/www/html/wordpress
+            
+            RDSEndpoint=$(aws ssm get-parameter --name "/MyApp/RDS/Endpoint" --query "Parameter.Value" --output text)
+            echo "SSM Parameter Value: ${RDSEndpoint}"
+            sed -i "s/localhost/${RDSEndpoint}/" wp-config.php
+
+            wget https://downloads.wordpress.org/plugin/ilab-media-tools.4.5.24.zip
+            unzip ilab-media-tools.4.5.24.zip
+
+            mv ilab-media-tools /var/www/html/wordpress/wp-content/plugins/
+
+# ALB(Application Load Balancer) 생성
+  ALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: My-ALB
+      Scheme: internet-facing
+      Type: application
+      SecurityGroups:
+        - !Ref ALBSG  # ALB-SG
+      Subnets:
+        - !Ref PublicSN1
+        - !Ref PublicSN2
+      Tags:
+        - Key: Name
+          Value: My-ALB
+
+# ALB 대상 그룹 생성
+  ALBTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: ALB-TG
+      Port: 80
+      Protocol: HTTP
+      VpcId: !Ref MyVPC
+      HealthCheckEnabled: true
+      HealthCheckIntervalSeconds: 30
+      HealthCheckPath: /wordpress
+      HealthCheckPort: 80
+      HealthCheckProtocol: HTTP
+      HealthCheckTimeoutSeconds: 5
+      HealthyThresholdCount: 3
+      UnhealthyThresholdCount: 3
+      Matcher:
+        HttpCode: 301
+
+# ALB 리스너 생성
+  ALBListener:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref ALBTargetGroup
+      LoadBalancerArn: !Ref ALB
+      Port: 80
+      Protocol: HTTP
+
+# Public Auto Scaling 그룹 생성
+  AutoScalingGroupPub:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: Public-ASG
+      VPCZoneIdentifier:
+        - !Ref PublicSN1
+        - !Ref PublicSN2
+      LaunchConfigurationName: !Ref LaunchConfigPub
+      MinSize: 2
+      MaxSize: 3
+      DesiredCapacity: 2
+      Tags:
+        - Key: Name
+          Value: Public-EC2-ASG
+          PropagateAtLaunch: true
+      HealthCheckType: EC2
+      HealthCheckGracePeriod: 300
+
+# Private Auto Scaling 그룹 생성
+  AutoScalingGroupPri:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: Private-ASG
+      VPCZoneIdentifier:
+        - !Ref PrivateSN1
+        - !Ref PrivateSN2
+      LaunchConfigurationName: !Ref LaunchConfigPri
+      MinSize: 2
+      MaxSize: 4
+      DesiredCapacity: 2
+      TargetGroupARNs:
+        - !Ref ALBTargetGroup
+      Tags:
+        - Key: Name
+          Value: Private-EC2-ASG
+          PropagateAtLaunch: true
+      HealthCheckType: EC2
+      HealthCheckGracePeriod: 300
+
+# Public Auto Scaling 정책 설정
+  ScaleUpPolicyPub:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AdjustmentType: ChangeInCapacity
+      AutoScalingGroupName: !Ref AutoScalingGroupPub
+      Cooldown: 300
+      ScalingAdjustment: 1
+
+  ScaleDownPolicyPub:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AdjustmentType: ChangeInCapacity
+      AutoScalingGroupName: !Ref AutoScalingGroupPub
+      Cooldown: 300
+      ScalingAdjustment: -1
+
+# Private Auto Scaling 정책 설정
+  ScaleUpPolicyPri:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AdjustmentType: ChangeInCapacity
+      AutoScalingGroupName: !Ref AutoScalingGroupPri
+      Cooldown: 300
+      ScalingAdjustment: 1
+
+  ScaleDownPolicyPri:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AdjustmentType: ChangeInCapacity
+      AutoScalingGroupName: !Ref AutoScalingGroupPri
+      Cooldown: 300
+      ScalingAdjustment: -1
+
+# Route 53 레코드 생성 ALB 연결
+  Route53RecordSetALB:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneIdParameter # Route 53에서 호스팅 중인 영역 ID로 변경
+      Name: !Ref DomainNameALB  # 원하는 도메인 이름으로 변경
+      Type: A
+      AliasTarget:
+        HostedZoneId: !GetAtt ALB.CanonicalHostedZoneID
+        DNSName: !GetAtt ALB.DNSName
