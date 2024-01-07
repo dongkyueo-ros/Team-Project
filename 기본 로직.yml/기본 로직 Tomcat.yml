@@ -587,6 +587,7 @@ Resources:
       InstanceType: t2.micro
       ImageId: !Ref LatestAmiId
       KeyName: !Ref KeyName
+      IamInstanceProfile: !Ref SSMInstanceProfile
       SecurityGroups:
         - !Ref WebSG
       UserData:
