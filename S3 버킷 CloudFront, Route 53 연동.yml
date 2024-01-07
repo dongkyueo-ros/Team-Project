@@ -1,0 +1,107 @@
+Parameters:
+
+# S3 버킷 이름 입력 (고유해야 한다)
+  BucketName:
+    Type: String
+    Description: S3 Bucket name
+    AllowedPattern: '^[a-zA-Z0-9-_]*$' # 알파벳, 대소문자, 숫자, -, _ 허용하도록 정의
+    ConstraintDescription: Alphanumeric characters only
+
+# ACM SSL/TLS 인증서
+  CertificateArn:
+    Type: String
+    Description: ACM SSL Certificate ARN # ACM SSL/TLS 인증서 ARN
+# CloudFront는 현재 us-east-1 (버지니아 북부) 리전의 ACM에서 생성된 SSL/TLS 인증서를 사용
+
+# CloudFront 도메인 이름 입력
+  DomainNameCloudFront:
+    Type: String
+    Description: CloudFront Domain name
+
+# 대체 도메인 이름 (CNAME)
+  DomainNameCNAME:
+    Type: String
+    Description: CloudFront Alternate Domain name (CNAME)
+
+# Route 53에서 호스팅 중인 영역 ID로 변경
+  HostedZoneIdParameter:
+    Type: String
+    Description: AWS Route 53 Hosted Zone ID
+
+Resources:
+
+# S3 버킷 생성
+  MyS3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref BucketName
+      AccessControl: Private
+      VersioningConfiguration:
+        Status: Enabled
+      Tags:
+        - Key: Name
+          Value: MyS3Bucket
+
+# 새 OAI 생성
+  MyLegacyAccessIdentity:
+    Type: AWS::CloudFront::CloudFrontOriginAccessIdentity
+    Properties:
+      CloudFrontOriginAccessIdentityConfig:
+        Comment: My Legacy Access Identity
+
+# CloudFront 배포 생성
+  MyCloudFrontDistribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Origins:
+          - DomainName: !GetAtt MyS3Bucket.DomainName
+            Id: !Ref MyS3Bucket
+            S3OriginConfig:
+              OriginAccessIdentity: !Sub origin-access-identity/cloudfront/${MyLegacyAccessIdentity}  
+              # CloudFront 원본 액세스 ID(OAI)를 사용하여 S3 버킷에 액세스
+        Enabled: true
+        DefaultCacheBehavior:
+          TargetOriginId: !Ref MyS3Bucket
+          ForwardedValues:
+            QueryString: false
+          ViewerProtocolPolicy: redirect-to-https
+          DefaultTTL: 86400
+          CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6  
+          # CachingOptimized 캐시 정책 ID
+          #OriginRequestPolicyId: a1e4b5c6-1bf9-4a17-8e0a-4a08a5b0d508  
+          # CachingOptimized 원본 요청 정책 ID
+        DefaultRootObject: index.html  # 기본 루트 객체 설정
+        ViewerCertificate: 
+          AcmCertificateArn: !Ref CertificateArn
+          SslSupportMethod: sni-only
+           # ACM(SSL/TLS) 증명서 아이디 사용하는 내용
+        HttpVersion: http2
+        Aliases:
+          - !Ref DomainNameCNAME  # 대체 도메인 이름 (CNAME) 추가
+        Comment: CloudFront Distribution for MyS3Bucket
+
+# S3 버킷 정책
+  MyS3BucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref MyS3Bucket
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              CanonicalUser: !GetAtt MyLegacyAccessIdentity.S3CanonicalUserId
+            Action: s3:GetObject
+            Resource: !Sub arn:aws:s3:::${MyS3Bucket}/*
+
+# CloudFront Route53 레코드 생성
+  CloudFrontRoute53Record:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneIdParameter # Route 53에서 호스팅 중인 영역 ID로 변경
+      Name: !Ref DomainNameCloudFront  # 원하는 도메인 이름으로 변경
+      Type: A
+      AliasTarget:
+        DNSName: !GetAtt MyCloudFrontDistribution.DomainName
+        HostedZoneId: Z2FDTNDATAQYW2  # CloudFront DNS의 고정 Hosted Zone ID
