@@ -226,7 +226,7 @@ Resources:
     Type: AWS::EC2::Route
     Properties:
       RouteTableId: !Ref PublicRT
-      DestinationCidrBlock: 0.0.0.0/0 # 모든 트래픽이 아닌 필요한 경우만 허용하게 변경
+      DestinationCidrBlock: 0.0.0.0/0 # 모든 트래픽이 아닌 필요한 경우만 허용
       GatewayId: !Ref 3TierIGW
 
 # Private 라우팅 테이블 생성 (Front-End)
