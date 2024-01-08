@@ -614,7 +614,7 @@ Resources:
 
             sed -i '/IncludeOptional conf.d\/\*\.conf/a\
             <VirtualHost *:80>\
-                ProxyRequests On\
+                ProxyRequests Off\
                 ProxyPreserveHost On\
                 <Proxy *>\
                     Order deny,allow\
@@ -660,8 +660,8 @@ Resources:
             sudo rm -rf apache-tomcat-10.1.17.tar.gz
             sudo mv apache-tomcat-10.1.17 /home/ec2-user/
 
-            sudo wget https://dlm.mariadb.com/3700566/Connectors/java/connector-java-3.3.2/mariadb-java-client-3.3.2.jar
-            sudo mv mariadb-java-client-3.3.2.jar /home/ec2-user/apache-tomcat-10.1.17/lib
+            sudo wget https://repo1.maven.org/maven2/mysql/mysql-connector-java/8.0.23/mysql-connector-java-8.0.23.jar
+            sudo mv mysql-connector-java-8.0.23.jar apache-tomcat-10.1.17/lib/
             
             echo "<h1>Back-End-EC2 (tomcat test) $(hostname -I) WAS Server</h1>" | sudo tee /home/ec2-user/apache-tomcat-10.1.17/webapps/ROOT/test.jsp >/dev/null
             sudo /home/ec2-user/apache-tomcat-10.1.17/bin/startup.sh
