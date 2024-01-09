@@ -1,0 +1,607 @@
+Parameters:
+
+# EC2 KeyPair 이름 지정
+  KeyName:
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instances. Linked to AWS Parameter
+    Type: AWS::EC2::KeyPair::KeyName
+    ConstraintDescription: must be the name of an existing EC2 KeyPair.
+
+# 인스턴스에 사용할 AMI ID
+  LatestAmiId:
+    Description: (DO NOT CHANGE)
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-minimal-kernel-default-x86_64
+    AllowedValues:
+      - /aws/service/ami-amazon-linux-latest/al2023-ami-minimal-kernel-default-x86_64
+
+# ACM ALB SSL/TLS 인증서
+  CertificateArnALB:
+    Type: String
+    Description: ACM SSL Certificate ARN for HTTPS Listener
+
+# ALB 도메인 이름 입력
+  DomainNameALB:
+    Type: String
+    Description: Extermal ALB Domain name
+
+# Route 53에서 호스팅 중인 영역 ID로 변경
+  HostedZoneIdParameter:
+    Type: String
+    Description: AWS Route 53 Hosted Zone ID
+
+Resources:
+
+# VPC 생성
+  3TierVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      Tags:
+        - Key: Name
+          Value: 3-Tier-VPC
+
+# 인터넷 게이트웨이 생성
+  3TierIGW:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: 3-Tier-IGW
+
+# 인터넷 게이트웨이 연결
+  3TierIGWAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref 3TierVPC
+      InternetGatewayId: !Ref 3TierIGW
+
+# Public 라우팅 테이블 생성 (Bastion Host)
+  PublicRT:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref 3TierVPC
+      Tags:
+        - Key: Name
+          Value: 3-Tier-Public-RT
+
+# Public 라우터 연결 (Bastion Host)
+  DefaultPublicRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PublicRT
+      DestinationCidrBlock: 0.0.0.0/0 # 모든 트래픽이 아닌 필요한 경우만 허용하게 변경
+      GatewayId: !Ref 3TierIGW
+
+# Private 라우팅 테이블 생성 (Front-End)
+  PrivateRT1:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref 3TierVPC
+      Tags:
+        - Key: Name
+          Value: 3-Tier-Private-RT-1(Web)
+
+# Private 라우터 연결 (Front-End)
+  DefaultPrivateRoute1:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRT1
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NATGW
+
+# Private 라우팅 테이블 생성 (Back-End)
+  PrivateRT2:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref 3TierVPC
+      Tags:
+        - Key: Name
+          Value: 3-Tier-Private-RT-2(WAS)
+
+# Private 라우터 연결 (Back-End)
+  DefaultPrivateRoute2:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref PrivateRT2
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NATGW
+
+# 탄력적 IP 생성
+  NatEIP:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: 3TierVPC
+      Tags:
+        - Key: Name
+          Value: 3-Tier-NAT-EIP
+
+# NAT 게이트웨이 생성
+  NATGW:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt NatEIP.AllocationId
+      SubnetId: !Ref PublicSN1
+      Tags:
+        - Key: Name
+          Value: 3-Tier-NAT-GW
+
+# Public 서브넷 생성 (Bastion Host)
+  PublicSN1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref 3TierVPC
+      CidrBlock: 10.0.0.0/24
+      AvailabilityZone: ap-northeast-2a
+      Tags:
+        - Key: Name
+          Value: Public-SN-1
+
+# Public 서브넷 생성
+  PublicSN2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref 3TierVPC
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: ap-northeast-2c
+      Tags:
+        - Key: Name
+          Value: Public-SN-2
+
+# Private 서브넷 생성 (Front-End)
+  PrivateSN1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref 3TierVPC
+      CidrBlock: 10.0.10.0/24
+      AvailabilityZone: ap-northeast-2a
+      Tags:
+        - Key: Name
+          Value: Web-Private-SN-1
+
+# Private 서브넷 생성 (Front-End)
+  PrivateSN2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref 3TierVPC
+      CidrBlock: 10.0.11.0/24
+      AvailabilityZone: ap-northeast-2c
+      Tags:
+        - Key: Name
+          Value: Web-Private-SN-2
+
+# Private 서브넷 생성 (Back-End)
+  PrivateSN3:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref 3TierVPC
+      CidrBlock: 10.0.20.0/24
+      AvailabilityZone: ap-northeast-2a
+      Tags:
+        - Key: Name
+          Value: WAS-Private-SN-1
+
+# Private 서브넷 생성 (Back-End)
+  PrivateSN4:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref 3TierVPC
+      CidrBlock: 10.0.21.0/24
+      AvailabilityZone: ap-northeast-2c
+      Tags:
+        - Key: Name
+          Value: WAS-Private-SN-2
+
+# DBPrivate 서브넷 생성 (DB)
+  DBPrivateSN1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref 3TierVPC
+      CidrBlock: 10.0.30.0/24
+      AvailabilityZone: ap-northeast-2a
+      Tags:
+        - Key: Name
+          Value: DB-Private-SN-1
+
+# DBPrivate 서브넷 생성 (DB)
+  DBPrivateSN2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref 3TierVPC
+      CidrBlock: 10.0.31.0/24
+      AvailabilityZone: ap-northeast-2c
+      Tags:
+        - Key: Name
+          Value: DB-Private-SN-2
+
+# Public 라우팅 테이블 서브넷 연결
+  PublicSNRouteTableAssociation1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRT
+      SubnetId: !Ref PublicSN1
+
+# Public 라우팅 테이블 서브넷 연결
+  PublicSNRouteTableAssociation2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRT
+      SubnetId: !Ref PublicSN2
+
+# Private 라우팅 테이블 서브넷 연결 (Front-End)
+  PrivateSNRouteTableAssociation1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRT1
+      SubnetId: !Ref PrivateSN1
+
+# Private 라우팅 테이블 서브넷 연결 (Front-End)
+  PrivateSNRouteTableAssociation2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRT1
+      SubnetId: !Ref PrivateSN2
+
+# Private 라우팅 테이블 서브넷 연결 (Back-End)
+  PrivateSNRouteTableAssociation3:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRT2
+      SubnetId: !Ref PrivateSN3
+
+# Private 라우팅 테이블 서브넷 연결 (Back-End)
+  PrivateSNRouteTableAssociation4:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRT2
+      SubnetId: !Ref PrivateSN4
+
+# Bastion Host 보안 그룹 생성 | SSH 대상 0.0.0.0/0(특정 관리자의 IP 주소로 주는게 좋음)
+  BastionSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable SSH access via port 22
+      VpcId: !Ref 3TierVPC
+      Tags:
+        - Key: Name
+          Value: Bastion-SG
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+
+# Extarnal ALB 보안 그룹 생성 | HTTP, HTTPS 대상 0.0.0.0/0
+  EXALBSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: External ALB Security Group
+      VpcId: !Ref 3TierVPC
+      Tags:
+        - Key: Name
+          Value: EX-ALB-SG
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 443  # HTTPS 포트
+          ToPort: 443  # HTTPS 포트
+          CidrIp: 0.0.0.0/0
+
+# Web 보안 그룹 생성 (Front-End) | SSH 대상 Bastion-SG, EX-ALB-SG
+  WebSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Web Private Security Group
+      VpcId: !Ref 3TierVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !GetAtt EXALBSG.GroupId
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          SourceSecurityGroupId: !GetAtt BastionSG.GroupId
+      Tags:
+        - Key: Name
+          Value: Web-SG
+
+# Internal ALB 보안 그룹 생성 | HTTP 대상 Web-SG
+  INALBSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Internal ALB Security Group
+      VpcId: !Ref 3TierVPC
+      Tags:
+        - Key: Name
+          Value: IN-ALB-SG
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !GetAtt WebSG.GroupId
+
+# WAS 보안 그룹 생성 (Back-End) | SSH 대상 Bastion-SG, IN-ALB-SG
+  WASSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: WAS(Web Application Server) Private Security Group
+      VpcId: !Ref 3TierVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourceSecurityGroupId: !GetAtt INALBSG.GroupId
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          SourceSecurityGroupId: !GetAtt BastionSG.GroupId 
+          # Public Bastion Host 에서 바로 접속 가능
+      Tags:
+        - Key: Name
+          Value: WAS-SG
+
+# DB 보안 그룹 생성 | MySQL 대상 Web-SG, WAS-SG
+  DBSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: RDS Security group to allow connections from WAS SG to RDS
+      GroupName: DB-SG
+      VpcId: !Ref 3TierVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          SourceSecurityGroupId: !Ref WASSG
+      Tags:
+        - Key: Name
+          Value: DB-SG
+
+# DB 서브넷 그룹 생성
+  DBSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupDescription: Subnet Group for MariaDB RDS
+      DBSubnetGroupName: DBSubnetGroup
+      SubnetIds:
+        - !Ref DBPrivateSN1
+        - !Ref DBPrivateSN2
+
+# Bastion Host 인스턴스 생성
+  BastionEC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: t2.micro 
+      KeyName: !Ref KeyName
+      NetworkInterfaces:
+        - DeviceIndex: 0
+          SubnetId: !Ref PublicSN1
+          GroupSet:
+          - !Ref BastionSG
+          AssociatePublicIpAddress: true
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash
+            hostnamectl set-hostname "Bastion-EC2-$(hostname -I)"
+            yum update -y
+      Tags:
+        - Key: Name
+          Value: Bastion-Host-EC2
+
+# Web Auto Scaling 그룹 시작 구성 리소스 (Front-End)
+  WebLaunchConfig:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      InstanceType: t2.micro
+      ImageId: !Ref LatestAmiId
+      KeyName: !Ref KeyName
+      SecurityGroups:
+        - !Ref WebSG
+      UserData:
+        Fn::Base64:
+          !Sub |
+            #!/bin/bash
+            hostnamectl set-hostname "Web-Front-End-EC2-$(hostname -I)"
+            yum -y update
+            yum -y install httpd
+            yum -y install wget unzip amazon-ssm-agent aws-cli
+            systemctl enable --now httpd
+            systemctl enable --now amazon-ssm-agent
+            echo "<h1>Front-End-EC2 $(hostname -I) Web Server</h1>" > /var/www/html/index.html
+
+# WAS Auto Scaling 그룹 시작 구성 리소스 (Back-End)
+  WASLaunchConfig:
+    Type: AWS::AutoScaling::LaunchConfiguration
+    Properties:
+      InstanceType: t2.micro
+      ImageId: !Ref LatestAmiId
+      KeyName: !Ref KeyName
+      SecurityGroups:
+        - !Ref WASSG
+      UserData:
+        Fn::Base64:
+          !Sub |
+            #!/bin/bash
+            hostnamectl set-hostname "WAS-Back-End-EC2-$(hostname -I)"
+            yum -y update
+            yum install java-11-amazon-corretto-devel -y
+            yum -y install wget unzip amazon-ssm-agent
+            dnf install -y httpd php-mysqli php php-devel mariadb*
+            systemctl enable --now httpd
+            systemctl enable --now amazon-ssm-agent
+
+# External ALB(Application Load Balancer) 생성
+  EXALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: EX-ALB
+      Scheme: internet-facing
+      Type: application
+      SecurityGroups:
+        - !Ref EXALBSG  # External-ALB-SG
+      Subnets:
+        - !Ref PublicSN1
+        - !Ref PublicSN2
+      Tags:
+        - Key: Name
+          Value: EX-ALB
+
+# External ALB 대상 그룹 생성
+  EXALBTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: EX-ALB-TG
+      Port: 80
+      Protocol: HTTP
+      VpcId: !Ref 3TierVPC
+
+# External ALB 리스너 생성 HTTP
+  EXALBListenerHTTP:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref EXALBTargetGroup
+      LoadBalancerArn: !Ref EXALB
+      Port: 80
+      Protocol: HTTP
+
+# ALB 리스너 생성 (HTTPS - External)
+  ExALBListenerHTTPS:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref EXALBTargetGroup
+      LoadBalancerArn: !Ref EXALB
+      Port: 443  # HTTPS 포트
+      Protocol: HTTPS  # 프로토콜을 HTTPS로 변경
+      Certificates:
+        - CertificateArn: !Ref CertificateArnALB  
+        # ACM에서 생성한 인증서의 ARN을 입력     
+
+# Internal ALB(Application Load Balancer) 생성
+  INALB:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Name: IN-ALB
+      Scheme: internal
+      Type: application
+      SecurityGroups:
+        - !Ref INALBSG  # Internal ALB-SG
+      Subnets:
+        - !Ref PrivateSN3
+        - !Ref PrivateSN4
+      Tags:
+        - Key: Name
+          Value: IN-ALB
+
+# Internal ALB 대상 그룹 생성 HTTP
+  INALBTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Name: IN-HTTP-TG
+      Port: 80
+      Protocol: HTTP
+      VpcId: !Ref 3TierVPC
+
+# Internal ALB 리스너 생성
+  INALBListenerTomcat:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref INALBTargetGroup
+      Port: 80
+      Protocol: HTTP
+      LoadBalancerArn: !Ref INALB
+
+# Web Auto Scaling 그룹 생성 (Front-End)
+  WebAutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: Web-Private-ASG
+      VPCZoneIdentifier:
+        - !Ref PrivateSN1
+        - !Ref PrivateSN2
+      LaunchConfigurationName: !Ref WebLaunchConfig
+      MinSize: 2
+      MaxSize: 4
+      DesiredCapacity: 2
+      TargetGroupARNs:
+        - !Ref EXALBTargetGroup
+      Tags:
+        - Key: Name
+          Value: Web-EC2-ASG
+          PropagateAtLaunch: true
+      HealthCheckType: EC2
+      HealthCheckGracePeriod: 300
+
+# WAS Auto Scaling 그룹 생성 (Back-End)
+  WASAutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: WAS-Private-ASG
+      VPCZoneIdentifier:
+        - !Ref PrivateSN3
+        - !Ref PrivateSN4
+      LaunchConfigurationName: !Ref WASLaunchConfig
+      MinSize: 2
+      MaxSize: 4
+      DesiredCapacity: 2
+      TargetGroupARNs:
+        - !Ref INALBTargetGroup
+      Tags:
+        - Key: Name
+          Value: WAS-EC2-ASG
+          PropagateAtLaunch: true
+      HealthCheckType: EC2
+      HealthCheckGracePeriod: 300
+
+# Web Auto Scaling 정책 설정 (Front-End)
+  WebScaleUpPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AdjustmentType: ChangeInCapacity
+      AutoScalingGroupName: !Ref WebAutoScalingGroup
+      Cooldown: 300
+      ScalingAdjustment: 1
+
+  WebScaleDownPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AdjustmentType: ChangeInCapacity
+      AutoScalingGroupName: !Ref WebAutoScalingGroup
+      Cooldown: 300
+      ScalingAdjustment: -1
+
+# WAS Auto Scaling 정책 설정 (Back-End)
+  WASScaleUpPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AdjustmentType: ChangeInCapacity
+      AutoScalingGroupName: !Ref WASAutoScalingGroup
+      Cooldown: 300
+      ScalingAdjustment: 1
+
+  WASScaleDownPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AdjustmentType: ChangeInCapacity
+      AutoScalingGroupName: !Ref WASAutoScalingGroup
+      Cooldown: 300
+      ScalingAdjustment: -1
+
+# Route 53 레코드 생성 ALB 연결
+  Route53RecordSetALB:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !Ref HostedZoneIdParameter # Route 53에서 호스팅 중인 영역 ID로 변경
+      Name: !Ref DomainNameALB  # 원하는 도메인 이름으로 변경
+      Type: A
+      AliasTarget:
+        HostedZoneId: !GetAtt EXALB.CanonicalHostedZoneID
+        DNSName: !GetAtt EXALB.DNSName
