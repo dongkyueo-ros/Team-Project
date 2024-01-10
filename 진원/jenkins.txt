@@ -29,6 +29,4 @@ sudo systemctl restart jenkins
 4. ID에는 깃허브 ID, Secret에는 깃허브에서 발급받은 토큰 입력(깃허브 토큰 발행시 admin, admin:repo_hook 권한 필요
 
 #플러그인 설치
-1. 젠킨스관리 > 플러그인 관리 > 고급 에서 업데이트사이트 의 https 대신 http로 변경(이걸해야 플러그인 설치가 됨)
-1. skip-certificate-check 플러그인 설치
-2. GitHub Integration 플러그인 설치
+1. GitHub Integration 플러그인 설치
