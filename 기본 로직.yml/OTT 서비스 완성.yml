@@ -177,7 +177,7 @@ Resources:
 #ec2에서 s3에 접근하기위해 적용, s3이름을 파라미터로 받아옴(스택생성시 입력필요) // 생성은 아니므로 이미 있는 버킷이여야함
 
 # RDS Endpoint SSM 파리미터 저장
-  RDSEndpoint:
+  OTTRDSEndpoint:
     Type: AWS::SSM::Parameter
     Properties:
       Name: /MyApp/RDS/Endpoint
@@ -547,7 +547,7 @@ Resources:
       DBInstanceClass: db.t3.micro
       Engine: mariadb
       EngineVersion: 10.6.14
-      MasterUsername: OTTMater
+      MasterUsername: OTTMaster
       MasterUserPassword: !Ref DBPassword1
       AllocatedStorage: 8
       DBSubnetGroupName: !Ref DBSubnetGroup
