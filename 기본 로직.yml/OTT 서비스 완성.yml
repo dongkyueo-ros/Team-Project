@@ -184,13 +184,13 @@ Resources:
       Type: String
       Value: !GetAtt RDS1.Endpoint.Address
 
-# Internal ALB DNS 이름 SSM 파라미터 저장
-  INALBDNSName:
+# Internal NLB DNS 이름 SSM 파라미터 저장
+  INNLBDNSName:
     Type: AWS::SSM::Parameter
     Properties:
       Name: /InternalLoadBalancer/DNSName
       Type: String
-      Value: !GetAtt INALB.DNSName
+      Value: !GetAtt INNLB.DNSName
 
 # IAM 인스턴스 프로필
   SSMInstanceProfile:
