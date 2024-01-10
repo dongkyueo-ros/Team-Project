@@ -10,29 +10,31 @@ dev(ansible) git > ci/cd >  앤서블  >  배포
 #젠킨스 설치시 필요한 서비스 설치
 sudo yum -y install daemonize
 sudo yum install java-11-amazon-corretto-devel -y
-sudo yum  -y install java-1.8.0-amazon-corretto
+
 #젠킨스 설치
 sudo wget -O jenkins.sh https://pkg.jenkins.io/redhat/jenkins-2.318-1.1.noarch.rpm
 sudo rpm -ivh jenkins.sh
 
-#enkins 서비스 시작 및 활성화
+#jenkins 서비스 시작 및 활성화
 sudo systemctl enable --now jenkins
 
 #초기 Jenkins 암호 확인
 sudo cat /var/lib/jenkins/secrets/initialAdminPassword
 
+#젠킨스 업그레이드
+sudo systemctl stop jenkins
+wget https://get.jenkins.io/war-stable/2.426.2/jenkins.war
+java -jar jenkins.war
+
 #웹브라우저 접속
 1. 보안그룹 8080/tcp 연결
 2. 퍼블릭IP:8080 으로 접속
 
-
-#젠킨스 업그레이드
-sudo systemctl stop jenkins
-https://www.jenkins.io/download/
-java -jar jenkins.war
-
+#깃허브 연동
+1. 젠킨스관리 > 시스템관리 >Github에서 add github server 클릭
+2. credentials 에서 add 클릭
+3. kind에 secret text로 변경
+4. ID에는 깃허브 ID, Secret에는 깃허브에서 발급받은 토큰 입력(깃허브 토큰 발행시 admin, admin:repo_hook 권한 필요
 
 #플러그인 설치
-1. 젠킨스관리 > 플러그인 관리 > 고급 에서 업데이트사이트 의 https 대신 http로 변경
-2. skip-certificate-check 플러그인 설치
-3. github 플러그인 설치
+1. GitHub Integration 플러그인 설치
