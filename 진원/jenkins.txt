@@ -8,7 +8,7 @@ dev(ansible) git > ci/cd >  앤서블  >  배포
 #젠킨스 설치
 sudo yum install java-11-amazon-corretto-devel -y
 sudo wget -O /etc/yum.repos.d/jenkins.repo http://pkg.jenkins-ci.org/redhat-stable/jenkins.repo
-sudo rpm --import https://pkg.jenkins.io/redhat-stable/jenkins.io.key
+sudo rpm --import https://pkg.jenkins.io/redhat-stable/jenkins.io-2023.key
 sudo yum clean packages
 sudo yum install -y jenkins
 
