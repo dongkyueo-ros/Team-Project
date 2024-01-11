@@ -37,11 +37,9 @@ sudo yum install -y yum-utils shadow-utils
 sudo yum-config-manager --add-repo https://rpm.releases.hashicorp.com/AmazonLinux/hashicorp.repo
 sudo yum -y install terraform
 
+#################배포###########################
 
-###############배포###########################
-
-
-# 프로젝트 생성 (사진참고)
+# 프로젝트 생성 (사진참고 - jenkins구성 가이드)
 1. 새로운 Item 클릭
 2. 프로젝트 이름 입력, Freestyle project 선택 후 OK 클릭
 3. Git 체크 후 레포지토리 URL 입력, Branch specifer를 깃허브의 브런치와 동일하게 변경, Credentials의 +Add 클릭
