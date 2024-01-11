@@ -31,3 +31,8 @@ sudo systemctl restart jenkins
 
 #플러그인 설치
 1. GitHub Integration 플러그인 설치
+
+#테라폼 설치
+sudo yum install -y yum-utils shadow-utils
+sudo yum-config-manager --add-repo https://rpm.releases.hashicorp.com/AmazonLinux/hashicorp.repo
+sudo yum -y install terraform
