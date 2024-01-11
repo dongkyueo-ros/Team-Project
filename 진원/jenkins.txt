@@ -36,3 +36,20 @@ sudo systemctl restart jenkins
 sudo yum install -y yum-utils shadow-utils
 sudo yum-config-manager --add-repo https://rpm.releases.hashicorp.com/AmazonLinux/hashicorp.repo
 sudo yum -y install terraform
+
+
+
+
+###############배포###########################
+
+
+#쉘 명령어 > 테라폼으로 인프라 구성시
+terraform init
+terraform plan
+terraform apply -auto-approve
+
+#쉘 명령어 > 테라폼으로 인프라 삭제시
+terraform init
+terraform plan -destroy
+terraform destroy -auto-approve
+
