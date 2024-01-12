@@ -20,7 +20,7 @@ sudo systemctl restart jenkins
 #웹브라우저 접속
 1. 보안그룹 8080/tcp 연결
 2. 퍼블릭IP:8080 으로 접속
-3. 변경이 필요할 경우 /usr/lib/systemd/system/jenkins.service 에서 변경하면됨 해당경로로 조회가 안된다면 systemctl status jenkins 후에 결과 긁어서 GPT한테 물어보면 설정파일 어딘지 알려줌
+3. 접속 포트 변경이 필요할 경우 /usr/lib/systemd/system/jenkins.service 에서 변경하면됨 해당경로로 조회가 안된다면 systemctl status jenkins 후에 결과 긁어서 GPT한테 물어보면 설정파일 어딘지 알려줌
 
 #플러그인 설치
 1. GitHub Integration 플러그인 설치
