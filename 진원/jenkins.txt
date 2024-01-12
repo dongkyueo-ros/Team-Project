@@ -3,7 +3,7 @@
 3. 모니터링 (AWS CloudWatch 혹은 오픈소스)
 4. ci/cd, devops (젠킨스, AWS코드파이프라인,깃허브) + (가능하다면 ANSIBLE, Teraform도 고려해봐야함)
 
-dev(ansible) git > ci/cd >  앤서블  >  배포
+dev(테라폼 문서 작성) github(테라폼 문서 push)  > 젠킨스(깃허브의 웹훅으로 이벤트 탐지) >  테라폼 실행  >  AWS인프라 배포
 
 #젠킨스 설치
 sudo yum install java-11-amazon-corretto-devel -y
@@ -53,7 +53,6 @@ terraform apply -auto-approve
 terraform init
 terraform plan -destroy
 terraform destroy -auto-approve
-
 
 #깃허브 연동
 1. 코드 작업을 적용한 깃허브 레지스트리 접속
