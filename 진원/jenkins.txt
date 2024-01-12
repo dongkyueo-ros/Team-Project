@@ -22,13 +22,6 @@ sudo systemctl restart jenkins
 2. 퍼블릭IP:8080 으로 접속
 3. 변경이 필요할 경우 /usr/lib/systemd/system/jenkins.service 에서 변경하면됨 해당경로로 조회가 안된다면 systemctl status jenkins 후에 결과 긁어서 GPT한테 물어보면 설정파일 어딘지 알려줌
 
-
-#깃허브 연동
-1. 젠킨스관리 > 시스템관리 >Github에서 add github server 클릭
-2. credentials 에서 add 클릭
-3. kind에 secret text로 변경
-4. ID에는 깃허브 ID, Secret에는 깃허브에서 발급받은 토큰 입력(깃허브 토큰 발행시 admin, admin:repo_hook 권한 필요
-
 #플러그인 설치
 1. GitHub Integration 플러그인 설치
 
@@ -50,7 +43,6 @@ sudo yum -y install terraform
 8. Kind를 Secret text로 변경, Secret에 Access key ID 혹은 Secret access key 입력(6번에서 생성한 2개 필드에 각각 넣어야함), ID에 젠킨스상에서 표시할 이름 입력
 9. Valiable에 각각 AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY 입력 후 각 변수에 맞는 Credentials 선택
 10. Build Steps 에서 아래의 "#쉘 명령어 > 테라폼으로 인프라 구성시" 명령어 복붙
-11. 깃허브의 레지스토리에 tf파일 푸시 후 생성한 프로젝트에서 GitHu Hook Log 에 로그 출력되는지확인
 
 #쉘 명령어 > 테라폼으로 인프라 구성시
 terraform init
@@ -62,6 +54,14 @@ terraform init
 terraform plan -destroy
 terraform destroy -auto-approve
 
+
+#깃허브 연동
+1. 코드 작업을 적용한 깃허브 레지스트리 접속
+2. Settings > Webhooks > Add webhook
+3. Payload URL에 http://젠킨스 IP:8080/github-webhook/
+4. Content type을 application/json으로 변경
+5. Which events would you like to trigger this webhook가 Just the push event로 체크되어있는지 확인
+6. Add webhook 클릭후 새로고침 해서 v표시 되는지 확인
 
 #환경변수 이름 
 AWS_ACCESS_KEY_ID
