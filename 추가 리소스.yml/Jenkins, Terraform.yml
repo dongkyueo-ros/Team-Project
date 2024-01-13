@@ -14,7 +14,26 @@ Parameters:
     AllowedValues:
       - /aws/service/ami-amazon-linux-latest/al2023-ami-minimal-kernel-default-x86_64
 
+# S3 버킷 이름 입력 (고유해야 한다)
+  BucketName:
+    Type: String
+    Description: S3 Bucket name
+    AllowedPattern: '^[a-zA-Z0-9-_]*$' # 알파벳, 대소문자, 숫자, -, _ 허용하도록 정의
+    ConstraintDescription: Alphanumeric characters only
+
 Resources:
+
+# S3 버킷 생성 (Jenkins backup)
+  JenkinsS3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref BucketName
+      AccessControl: Private
+      VersioningConfiguration:
+        Status: Enabled
+      Tags:
+        - Key: Name
+          Value: JenkinsS3Bucket
 
 # VPC 생성
   JenkinsVPC:
@@ -97,6 +116,36 @@ Resources:
           FromPort: 8080
           ToPort: 8080
           CidrIp: 0.0.0.0/0
+
+# IAM 역할 생성
+  JenkinsS3FullAccessRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: JenkinsS3FullAccessRole
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: S3FullAccessPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:*
+                Resource: !Sub arn:aws:s3:::${JenkinsS3Bucket}/*
+
+# IAM 역할과 인스턴스 연결
+  JenkinsS3FullAccessRoleInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: JenkinsS3FullAccessRoleInstanceProfile
+      Roles:
+        - !Ref JenkinsS3FullAccessRole
 
 # Jenkins 인스턴스 생성
   JenkinsEC2Instance:
