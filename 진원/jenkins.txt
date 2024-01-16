@@ -17,6 +17,14 @@ sudo vi /usr/lib/systemd/system/jenkins.service
 JENKINS_JAVA_OPTIONS="-Djava.awt.headless=true -Dhttps.protocols=TLSv1.2"
 sudo systemctl restart jenkins
 
+#스왑 추가(2기가)
+sudo mkdir /var/spool/swap
+sudo touch /var/spool/swap/swapfile
+sudo dd if=/dev/zero of=/var/spool/swap/swapfile count=2048000 bs=1024
+sudo chmod 600 /var/spool/swap/swapfile
+sudo mkswap /var/spool/swap/swapfile
+sudo swapon /var/spool/swap/swapfile
+
 #웹브라우저 접속
 1. 보안그룹 8080/tcp 연결
 2. 퍼블릭IP:8080 으로 접속
