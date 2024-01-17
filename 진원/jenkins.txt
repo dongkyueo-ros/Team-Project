@@ -73,6 +73,8 @@ terraform destroy -auto-approve
 
 #ec2 IAM 권한 추가
 AmazonEC2ContainerRegistryFullAccess 추가
+#도커로그인 테스트
+aws ecr get-login-password --region ap-northeast-2 | docker login --username AWS --password-stdin ecr주소
 
 #깃허브 연동
 1. 코드 작업을 적용한 깃허브 레지스트리 접속
