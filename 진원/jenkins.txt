@@ -31,7 +31,9 @@ sudo swapon /var/spool/swap/swapfile
 3. 접속 포트 변경이 필요할 경우 /usr/lib/systemd/system/jenkins.service 에서 변경하면됨 해당경로로 조회가 안된다면 systemctl status jenkins 후에 결과 긁어서 GPT한테 물어보면 설정파일 어딘지 알려줌
 
 #플러그인 설치
-1. GitHub Integration 플러그인 설치
+1. GitHub Integration
+2. AWS Credentials
+3. S3 Publisher
 
 #테라폼 설치
 sudo yum install -y yum-utils shadow-utils
