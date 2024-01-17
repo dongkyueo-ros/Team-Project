@@ -1,19 +1,25 @@
 def isFileContentChanged(filePath) {
     def previousCommit = sh(script: "git rev-parse HEAD^", returnStdout: true).trim()
     def currentCommit = sh(script: "git rev-parse HEAD", returnStdout: true).trim()
-
-    // 이전 커밋과 현재 커밋 간의 파일 내용 비교
     def diff = sh(script: "git diff ${previousCommit} ${currentCommit} -- ${filePath}", returnStdout: true)
-
     return diff != ''
+}
+
+def extractBaseImage(String dockerFilePath) {
+    def dockerFileContent = readFile dockerFilePath
+    def fromLine = dockerFileContent.split("\n").find { it.startsWith('FROM') }
+    if (fromLine != null) {
+        return fromLine.split(' ')[1].split(':')[0]
+    } else {
+        return null
+    }
 }
 
 pipeline {
     agent any
 
     environment {
-        // 이 자격 증명 ID는 Jenkins 자격 증명 플러그인에 미리 저장되어야 합니다.
-        DOCKER_CREDENTIALS = credentials('aws_account')
+        DOCKER_CREDENTIALS = credentials('aws_connection')
     }
 
     stages {
@@ -26,21 +32,11 @@ pipeline {
         stage('Check Changes') {
             steps {
                 script {
-                    // 파일 내용 변경 여부 확인 및 환경 변수 설정
                     def terraformChanged = isFileContentChanged('Terraform/**.tf')
-                    def dockerChanged = isFileContentChanged('Image/Dockerfile')
+                    def dockerChanged = isFileContentChanged('Image/*Dockerfile')
 
-                    if (terraformChanged) {
-                        env.RUN_TERRAFORM = 'true'
-                    } else {
-                        env.RUN_TERRAFORM = 'false'
-                    }
-
-                    if (dockerChanged) {
-                        env.RUN_DOCKER = 'true'
-                    } else {
-                        env.RUN_DOCKER = 'false'
-                    }
+                    env.RUN_TERRAFORM = terraformChanged ? 'true' : 'false'
+                    env.RUN_DOCKER = dockerChanged ? 'true' : 'false'
 
                     echo "Terraform Changed: ${env.RUN_TERRAFORM}"
                     echo "Docker Changed: ${env.RUN_DOCKER}"
@@ -55,18 +51,17 @@ pipeline {
             steps {
                 script {
                     echo "Terraform code has changed. Applying..."
-
                     def terraformPath = sh(script: "find ${WORKSPACE}/Terraform -type f -name \"*.tf\" | head -n 1 || echo \"none\"", returnStdout: true).trim()
-                    if (terraformPath == 'none') {
-                        echo "No Terraform code found."
-                    } else {
-                        // 정규 표현식에서 달러 기호를 이스케이프합니다.
-                        def terraformDir = terraformPath.replaceAll("/[^/]+\$", "")
 
+                    if (terraformPath != 'none') {
+                        def terraformDir = terraformPath.replaceAll("/[^/]+\$", "")
                         dir(terraformDir) {
                             sh "terraform init"
-                            sh "terraform destroy -auto-approve"
+                            sh "terraform plan -out=myplan"
+                            sh "terraform apply myplan"
                         }
+                    } else {
+                        echo "No Terraform code found."
                     }
                 }
             }
@@ -79,19 +74,17 @@ pipeline {
             steps {
                 script {
                     echo 'Building and pushing Docker image...'
-
-                    // Docker 작업 디렉토리 설정
                     def dockerWorkDir = "${WORKSPACE}/Image"
-
-                    // Jenkins 빌드 번호를 가져와서 이미지 태그에 사용
                     def buildNumber = env.BUILD_NUMBER
+                    def dockerFilePath = "${dockerWorkDir}/Dockerfile"
+                    def baseImage = extractBaseImage(dockerFilePath)
 
-                    // Docker 이미지 빌드 및 푸시
                     dir(dockerWorkDir) {
-                        withCredentials([usernamePassword(credentialsId: 'aws_account', passwordVariable: 'DOCKER_PASSWORD', usernameVariable: 'DOCKER_USERNAME')]) {
-                            sh "docker build -t my-image:${buildNumber} ."
-                            sh "docker tag my-image:${buildNumber} 790267619968.dkr.ecr.ap-northeast-2.amazonaws.com/dockerimage/my-image:${buildNumber}"
-                            sh "docker push 790267619968.dkr.ecr.ap-northeast-2.amazonaws.com/dockerimage/my-image:${buildNumber}"
+                        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws_connection', accessKeyVariable: 'AWS_ACCESS_KEY_ID', secretKeyVariable: 'AWS_SECRET_ACCESS_KEY']]) {
+                            sh "aws ecr get-login-password --region ap-northeast-2 | docker login --username AWS --password-stdin 790267619968.dkr.ecr.ap-northeast-2.amazonaws.com"
+                            sh "docker build -f ${dockerFilePath} -t my-image:${baseImage}-${buildNumber} ."
+                            sh "docker tag my-image:${baseImage}-${buildNumber} 790267619968.dkr.ecr.ap-northeast-2.amazonaws.com/dockerimage:${baseImage}-${buildNumber}"
+                            sh "docker push 790267619968.dkr.ecr.ap-northeast-2.amazonaws.com/dockerimage:${baseImage}-${buildNumber}"
                         }
                     }
                 }
@@ -99,3 +92,18 @@ pipeline {
         }
     }
 }
+
+
+
+
+// stage('Update Kubernetes Deployment') {
+//     when {
+//         expression { env.RUN_DOCKER == 'true' }
+//     }
+//     steps {
+//         script {
+//             def newImage = "790267619968.dkr.ecr.ap-northeast-2.amazonaws.com/dockerimage:${baseImage}-${buildNumber}"
+//             sh "kubectl set image deployment/my-deployment my-container=${newImage}"
+//         }
+//     }
+// }
