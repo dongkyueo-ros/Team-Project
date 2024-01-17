@@ -38,6 +38,11 @@ sudo yum install -y yum-utils shadow-utils
 sudo yum-config-manager --add-repo https://rpm.releases.hashicorp.com/AmazonLinux/hashicorp.repo
 sudo yum -y install terraform
 
+#도커 설치 및 젠킨스 계정 권한 부여
+sudo yum -y install docker
+sudo systemctl enable --now docker
+sudo usermod -aG docker jenkins
+
 #################배포###########################
 
 # 프로젝트 생성 (사진참고 - jenkins구성 가이드)
