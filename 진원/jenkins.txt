@@ -34,6 +34,7 @@ sudo swapon /var/spool/swap/swapfile
 1. GitHub Integration
 2. AWS Credentials
 3. S3 Publisher
+4. Pipeline Utility Steps
 
 #테라폼 설치
 sudo yum install -y yum-utils shadow-utils
