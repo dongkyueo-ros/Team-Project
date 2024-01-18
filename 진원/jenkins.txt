@@ -60,7 +60,7 @@ sudo usermod -aG docker jenkins
 2. AWS Credentials
 3. S3 Publisher
 4. Pipeline Utility Steps
-5. Docker Pipeline
+5. Slack Notification
 
 
 
