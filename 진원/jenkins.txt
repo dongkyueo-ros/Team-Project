@@ -45,8 +45,13 @@ sudo usermod -aG docker jenkins
 1. 아래 플러그인 설치
 2. 젠킨스 관리 클릭 > System 클릭 > credential add 클릭 > Username with password 변경 > Username에 깃허브 ID, Password에 깃허브 패스워드(토큰) 입력 후 저장
 3. 젠킨스 관리 클릭 > System 클릭 > credential add 클릭 > aws credentials 변경 > id에 jenkins파일에서 입력한 자격증명이름 으로 변경(ex. aws_connection)  >  Access key ID와 Secret access key 입력 후 저장
-3. 새로운 Item 클릭 > 프로젝트 이름 입력 후 Pipeline 선택
-4. Build Triggers 의 GitHub hook trigger for GITScm polling 체크
+4. 새로운 Item 클릭 > 프로젝트 이름 입력 후 Pipeline 선택
+5. Build Triggers 의 GitHub hook trigger for GITScm polling 체크
+6. Pipeline 부분의 Definition을 Pipeline script from SCM로 변경
+7. SCM을 Git으로 변경
+8. 레포지토리 url 입력
+9. Credentials 에는 2번에서 생성한 Git 자격증명으로 변경
+10. Branches to build 에는 깃 레포지토리의 브런치로 변경 (ex. */main)
 
 
 
@@ -59,7 +64,7 @@ sudo usermod -aG docker jenkins
 
 
 
-#################배포###########################
+#################예전 버전 ###########################
 
 # 프로젝트 생성 (사진참고 - jenkins구성 가이드)
 1. 새로운 Item 클릭
