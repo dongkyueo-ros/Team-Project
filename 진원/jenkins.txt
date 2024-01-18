@@ -25,18 +25,6 @@ sudo chmod 600 /var/spool/swap/swapfile
 sudo mkswap /var/spool/swap/swapfile
 sudo swapon /var/spool/swap/swapfile
 
-#웹브라우저 접속
-1. 보안그룹 8080/tcp 연결
-2. 퍼블릭IP:8080 으로 접속
-3. 접속 포트 변경이 필요할 경우 /usr/lib/systemd/system/jenkins.service 에서 변경하면됨 해당경로로 조회가 안된다면 systemctl status jenkins 후에 결과 긁어서 GPT한테 물어보면 설정파일 어딘지 알려줌
-
-#플러그인 설치
-1. GitHub Integration
-2. AWS Credentials
-3. S3 Publisher
-4. Pipeline Utility Steps
-5. Docker Pipeline
-
 #테라폼 설치
 sudo yum install -y yum-utils shadow-utils
 sudo yum-config-manager --add-repo https://rpm.releases.hashicorp.com/AmazonLinux/hashicorp.repo
@@ -46,6 +34,22 @@ sudo yum -y install terraform
 sudo yum -y install docker
 sudo systemctl enable --now docker
 sudo usermod -aG docker jenkins
+
+#웹브라우저 접속
+1. 보안그룹 8080/tcp 연결
+2. 퍼블릭IP:8080 으로 접속
+3. 접속 포트 변경이 필요할 경우 /usr/lib/systemd/system/jenkins.service 에서 변경하면됨 해당경로로 조회가 안된다면 systemctl status jenkins 후에 결과 긁어서 GPT한테 물어보면 설정파일 어딘지 알려줌
+
+
+
+#플러그인 설치
+1. GitHub Integration
+2. AWS Credentials
+3. S3 Publisher
+4. Pipeline Utility Steps
+5. Docker Pipeline
+
+
 
 #################배포###########################
 
