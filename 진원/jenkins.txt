@@ -5,6 +5,8 @@
 
 dev(테라폼 문서 작성) > github(테라폼 문서 push)  > 젠킨스(깃허브의 웹훅으로 이벤트 탐지) >  테라폼 실행  >  AWS인프라 배포
 
+#######Yaml 사용시 "#웹브라우저 접속"부터 진행하면됨#######
+
 #젠킨스 설치
 sudo yum install java-11-amazon-corretto-devel -y
 sudo wget -O /etc/yum.repos.d/jenkins.repo http://pkg.jenkins-ci.org/redhat-stable/jenkins.repo
@@ -51,7 +53,7 @@ Slack 에서 메시지 수신할 채널 생성
 1. 아래 플러그인 설치
 2. 젠킨스 관리 클릭 > System 클릭 > credential add 클릭 > Username with password 변경 > Username에 깃허브 ID, Password에 깃허브 패스워드(토큰) 입력 후 저장
 3. 젠킨스 관리 클릭 > System 클릭 > credential add 클릭 > aws credentials 변경 > id에 jenkins파일에서 입력한 자격증명이름 으로 변경(ex. aws_connection)  >  Access key ID와 Secret access key 입력 후 저장
-4. 젠킨스 관리 클릭 > System 클릭 > Slack부분의 Workspace 입력 > credential add 클릭 >  Secret text로 변경 후 passwrod에 slack 토큰 입력 후 저장
+4. 젠킨스 관리 클릭 > System 클릭 > Slack부분의 Workspace 입력 > credential add 클릭 >  Secret text로 변경 후 passwrod에 slack 토큰 입력 후 저장 > Credential에 방금 생성한 자격증명 정보 선택 후 Test > 성공 출력되면 저장
 4. 새로운 Item 클릭 > 프로젝트 이름 입력 후 Pipeline 선택
 5. Build Triggers 의 GitHub hook trigger for GITScm polling 체크
 6. Pipeline 부분의 Definition을 Pipeline script from SCM로 변경
