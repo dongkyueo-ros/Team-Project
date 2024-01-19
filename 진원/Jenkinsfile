@@ -1,3 +1,6 @@
+import java.text.SimpleDateFormat
+import java.util.TimeZone
+
 def isFileContentChanged(filePath) {
     def previousCommit = sh(script: "git rev-parse HEAD^", returnStdout: true).trim()
     def currentCommit = sh(script: "git rev-parse HEAD", returnStdout: true).trim()
@@ -5,21 +8,33 @@ def isFileContentChanged(filePath) {
     return diff != ''
 }
 
+def isDirectoryChanged(String dirPath) {
+    def previousCommit = sh(script: "git rev-parse HEAD^", returnStdout: true).trim()
+    def currentCommit = sh(script: "git rev-parse HEAD", returnStdout: true).trim()
+    def changes = sh(script: "git diff --name-only ${previousCommit} ${currentCommit} -- ${dirPath}", returnStdout: true).trim()
+    return changes != ''
+}
+
+def isSourceOrDockerFileChanged(String dirPath) {
+    def previousCommit = sh(script: "git rev-parse HEAD^", returnStdout: true).trim()
+    def currentCommit = sh(script: "git rev-parse HEAD", returnStdout: true).trim()
+    def changes = sh(script: "git diff --name-only ${previousCommit} ${currentCommit} -- ${dirPath}", returnStdout: true).trim()
+    return changes.contains('Dockerfile') || changes.split("\n").any { it.endsWith(".tar") || it.endsWith(".js") || it.endsWith(".py") }
+}
+
 def extractBaseImage(String dockerFilePath) {
-    def dockerFileContent = readFile dockerFilePath
+    def dockerFileContent = readFile(dockerFilePath)
     def fromLine = dockerFileContent.split("\n").find { it.startsWith('FROM') }
-    if (fromLine != null) {
-        return fromLine.split(' ')[1].split(':')[0]
-    } else {
-        return null
-    }
+    return fromLine ? fromLine.split(' ')[1].split(':')[0] : null
 }
 
 pipeline {
     agent any
-
     environment {
         DOCKER_CREDENTIALS = credentials('aws_connection')
+        AWS_CREDENTIALS = credentials('aws_connection')
+        S3_BUCKET = 'jwdemoott0119'
+        BASTION_HOST = '43.201.47.203' // 배스천 호스트 주소
     }
 
     stages {
@@ -33,26 +48,21 @@ pipeline {
             steps {
                 script {
                     def terraformChanged = isFileContentChanged('Terraform/**.tf')
-                    def dockerChanged = isFileContentChanged('Image/*Dockerfile')
-
+                    def dockerOrSourceChanged = isDirectoryChanged('Image/')
                     env.RUN_TERRAFORM = terraformChanged ? 'true' : 'false'
-                    env.RUN_DOCKER = dockerChanged ? 'true' : 'false'
-
+                    env.RUN_DOCKER = dockerOrSourceChanged ? 'true' : 'false'
                     echo "Terraform Changed: ${env.RUN_TERRAFORM}"
-                    echo "Docker Changed: ${env.RUN_DOCKER}"
+                    echo "Docker or Source Changed: ${env.RUN_DOCKER}"
                 }
             }
         }
 
         stage('Terraform Apply') {
-            when {
-                expression { env.RUN_TERRAFORM == 'true' }
-            }
+            when { expression { env.RUN_TERRAFORM == 'true' } }
             steps {
                 script {
                     echo "Terraform code has changed. Applying..."
                     def terraformPath = sh(script: "find ${WORKSPACE}/Terraform -type f -name \"*.tf\" | head -n 1 || echo \"none\"", returnStdout: true).trim()
-
                     if (terraformPath != 'none') {
                         def terraformDir = terraformPath.replaceAll("/[^/]+\$", "")
                         dir(terraformDir) {
@@ -65,45 +75,134 @@ pipeline {
                     }
                 }
             }
+            post {
+                failure {
+                    script {
+                        def koreaTime = new Date().format("yyyy-MM-dd HH:mm:ss", TimeZone.getTimeZone('Asia/Seoul'))
+                        def message = ":x: 배포실패!\n작업 시간: ${koreaTime}"
+                        slackSend(channel: '#ott_noti', message: message)
+                    }
+                }
+            }
         }
 
-        stage('Build and Push Docker Image') {
+stage('Build and Push Docker Image') {
+    when { expression { env.RUN_DOCKER == 'true' } }
+    steps {
+        script {
+            def services = ['httpd', 'php']
+            services.each { service ->
+                if (isSourceOrDockerFileChanged("Image/${service}")) {
+                    echo "Building and pushing Docker image for ${service}..."
+                    def dockerFilePath = "Image/${service}/Dockerfile"
+                    def baseImage = extractBaseImage(dockerFilePath)
+                    def buildNumber = env.BUILD_NUMBER
+                    def imageName = "${baseImage}-${buildNumber}"
+
+                    dir("Image/${service}") {
+                        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws_connection', accessKeyVariable: 'AWS_ACCESS_KEY_ID', secretKeyVariable: 'AWS_SECRET_ACCESS_KEY']]) {
+                            sh "aws ecr get-login-password --region ap-northeast-2 | docker login --username AWS --password-stdin 790267619968.dkr.ecr.ap-northeast-2.amazonaws.com"
+                            sh "docker build -t my-image:${imageName} ."
+                            sh "docker tag my-image:${imageName} 790267619968.dkr.ecr.ap-northeast-2.amazonaws.com/dockerimage:${imageName}"
+                            sh "docker push 790267619968.dkr.ecr.ap-northeast-2.amazonaws.com/dockerimage:${imageName}"
+                        }
+                    }
+
+                    try {
+                        sshagent(credentials: ['bastion_id']) {
+                            sh "ssh -o StrictHostKeyChecking=no ec2-user@${BASTION_HOST} 'kubectl set image deployment/${service}-deployment ${service}-container=790267619968.dkr.ecr.ap-northeast-2.amazonaws.com/dockerimage:${imageName}'"
+                        }
+                    } catch (Exception e) {
+                        currentBuild.result = 'FAILURE'
+                        throw e
+                    }
+                } else {
+                    echo "No changes detected in ${service}"
+                }
+            }
+        }
+    }
+    post {
+        failure {
+            script {
+                def koreaTime = new Date().format("yyyy-MM-dd HH:mm:ss", TimeZone.getTimeZone('Asia/Seoul'))
+                def message = ":x: 배포실패!\n작업 시간: ${koreaTime}"
+                slackSend(channel: '#ott_noti', message: message)
+            }
+        }
+    }
+}
+
+        stage('Backup to S3') {
             when {
-                expression { env.RUN_DOCKER == 'true' }
+                anyOf {
+                    expression { env.RUN_TERRAFORM == 'true' }
+                    expression { env.RUN_DOCKER == 'true' }
+                }
             }
             steps {
                 script {
-                    echo 'Building and pushing Docker image...'
-                    def dockerWorkDir = "${WORKSPACE}/Image"
-                    def buildNumber = env.BUILD_NUMBER
-                    def dockerFilePath = "${dockerWorkDir}/Dockerfile"
-                    def baseImage = extractBaseImage(dockerFilePath)
+                    def previousCommit = sh(script: "git rev-parse HEAD^", returnStdout: true).trim()
+                    def currentCommit = sh(script: "git rev-parse HEAD", returnStdout: true).trim()
 
-                    dir(dockerWorkDir) {
-                        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws_connection', accessKeyVariable: 'AWS_ACCESS_KEY_ID', secretKeyVariable: 'AWS_SECRET_ACCESS_KEY']]) {
-                            sh "aws ecr get-login-password --region ap-northeast-2 | docker login --username AWS --password-stdin 790267619968.dkr.ecr.ap-northeast-2.amazonaws.com"
-                            sh "docker build -f ${dockerFilePath} -t my-image:${baseImage}-${buildNumber} ."
-                            sh "docker tag my-image:${baseImage}-${buildNumber} 790267619968.dkr.ecr.ap-northeast-2.amazonaws.com/dockerimage:${baseImage}-${buildNumber}"
-                            sh "docker push 790267619968.dkr.ecr.ap-northeast-2.amazonaws.com/dockerimage:${baseImage}-${buildNumber}"
+                    if (env.RUN_TERRAFORM == 'true') {
+                        def changedTerraformFiles = sh(script: "git diff --name-only ${previousCommit} ${currentCommit} -- ${WORKSPACE}/Terraform/*.tf", returnStdout: true).trim().split("\n")
+                        changedTerraformFiles.each { file ->
+                            sh "aws s3 cp ${file} s3://${S3_BUCKET}/terraform-backup/${file.tokenize('/')[-1]}"
+                        }
+                    }
+
+                    if (env.RUN_DOCKER == 'true') {
+                        def changedDockerDirs = sh(script: "git diff --name-only ${previousCommit} ${currentCommit} -- ${WORKSPACE}/Image/", returnStdout: true).trim().split("\n").collect { it.split('/')[1] }.unique()
+                        changedDockerDirs.each { dir ->
+                            sh "aws s3 cp --recursive ${WORKSPACE}/Image/${dir} s3://${S3_BUCKET}/docker-backup/${dir}/"
                         }
                     }
                 }
             }
         }
     }
+
+    post {
+        success {
+            script {
+                def koreaTime = new Date().format("yyyy-MM-dd HH:mm:ss", TimeZone.getTimeZone('Asia/Seoul'))
+                def message = ""
+
+                if (env.RUN_TERRAFORM == 'false' && env.RUN_DOCKER == 'false') {
+                    message = ":warning: 설정파일 수정!\n작업 시간: ${koreaTime}"
+                } else {
+                    if (env.RUN_TERRAFORM == 'true') {
+                        def changedTerraformFiles = sh(script: "git diff --name-only HEAD HEAD~1 -- Terraform/*.tf", returnStdout: true).trim()
+                        message = ":white_check_mark: 배포성공!\n변경된 Terraform 파일:${changedTerraformFiles}\n작업 시간: ${koreaTime}"
+                    }
+                    if (env.RUN_DOCKER == 'true') {
+                        def changedDockerDirs = sh(script: "git diff --name-only HEAD HEAD~1 -- Image/*/Dockerfile", returnStdout: true).trim()
+                        message = ":white_check_mark: 배포성공!\n변경된 Dockerfile:${changedDockerDirs}\n작업 시간: ${koreaTime}"
+                    }
+                }
+                slackSend(channel: '#ott_noti', message: message)
+            }
+        }
+        failure {
+            script {
+                def koreaTime = new Date().format("yyyy-MM-dd HH:mm:ss", TimeZone.getTimeZone('Asia/Seoul'))
+                def message = ""
+
+                if (env.RUN_TERRAFORM == 'false' && env.RUN_DOCKER == 'false') {
+                    message = ":warning: 설정파일 수정!\n작업 시간: ${koreaTime}"
+                } else {
+                    if (env.RUN_TERRAFORM == 'true') {
+                        def changedTerraformFiles = sh(script: "git diff --name-only HEAD HEAD~1 -- Terraform/*.tf", returnStdout: true).trim()
+                        message = ":x: 배포실패!\n변경된 Terraform 파일:${changedTerraformFiles}\n작업 시간: ${koreaTime}"
+                    }
+                    if (env.RUN_DOCKER == 'true') {
+                        def changedDockerDirs = sh(script: "git diff --name-only HEAD HEAD~1 -- Image/*/Dockerfile", returnStdOut: true).trim()
+                        message = ":x: 배포실패!\n변경된 Dockerfile:${changedDockerDirs}\n작업 시간: ${koreaTime}"
+                    }
+                }
+                slackSend(channel: '#ott_noti', message: message)
+            }
+        }
+    }
 }
-
-
-
-
-// stage('Update Kubernetes Deployment') {
-//     when {
-//         expression { env.RUN_DOCKER == 'true' }
-//     }
-//     steps {
-//         script {
-//             def newImage = "790267619968.dkr.ecr.ap-northeast-2.amazonaws.com/dockerimage:${baseImage}-${buildNumber}"
-//             sh "kubectl set image deployment/my-deployment my-container=${newImage}"
-//         }
-//     }
-// }
