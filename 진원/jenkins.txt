@@ -72,6 +72,7 @@ Slack 에서 메시지 수신할 채널 생성
 3. S3 Publisher
 4. Pipeline Utility Steps
 5. Slack Notification
+6. ssh agent
 
 
 
