@@ -40,11 +40,18 @@ sudo usermod -aG docker jenkins
 2. 퍼블릭IP:8080 으로 접속
 3. 접속 포트 변경이 필요할 경우 /usr/lib/systemd/system/jenkins.service 에서 변경하면됨 해당경로로 조회가 안된다면 systemctl status jenkins 후에 결과 긁어서 GPT한테 물어보면 설정파일 어딘지 알려줌
 
+#슬랙 연동
+1. Slack 토큰 생성
+Slack 에서 메시지 수신할 채널 생성
+2. 앱추가 클릭
+3. Jenkins CI 구성 클릭 후 생성한 채널 선택
+4. Jenkins CI 앱 추가 하고 나오는 토큰 저장하기(jenkins에서 자격증명으로 사용해야함)
 
 # 프로젝트 생성
 1. 아래 플러그인 설치
 2. 젠킨스 관리 클릭 > System 클릭 > credential add 클릭 > Username with password 변경 > Username에 깃허브 ID, Password에 깃허브 패스워드(토큰) 입력 후 저장
 3. 젠킨스 관리 클릭 > System 클릭 > credential add 클릭 > aws credentials 변경 > id에 jenkins파일에서 입력한 자격증명이름 으로 변경(ex. aws_connection)  >  Access key ID와 Secret access key 입력 후 저장
+4. 젠킨스 관리 클릭 > System 클릭 > Slack부분의 Workspace 입력 > credential add 클릭 >  Secret text로 변경 후 passwrod에 slack 토큰 입력 후 저장
 4. 새로운 Item 클릭 > 프로젝트 이름 입력 후 Pipeline 선택
 5. Build Triggers 의 GitHub hook trigger for GITScm polling 체크
 6. Pipeline 부분의 Definition을 Pipeline script from SCM로 변경
@@ -52,8 +59,6 @@ sudo usermod -aG docker jenkins
 8. 레포지토리 url 입력
 9. Credentials 에는 2번에서 생성한 Git 자격증명으로 변경
 10. Branches to build 에는 깃 레포지토리의 브런치로 변경 (ex. */main)
-
-
 
 # 플러그인 설치
 1. GitHub Integration
