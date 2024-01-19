@@ -66,6 +66,7 @@ Slack 에서 메시지 수신할 채널 생성
 #jenkinsfile 수정
 1. 커밋파일 백업할 s3버킷이름수정
 2. 메시지보낼 slack 채널명 수정
+3. bastion 호스트 ip 수정
 
 # 플러그인 설치
 1. GitHub Integration
