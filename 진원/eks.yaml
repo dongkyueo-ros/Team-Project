@@ -1,0 +1,295 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Parameters:
+# EC2 KeyPair 이름 지정
+  BastionKeyName:
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instances. Linked to AWS Parameter
+    Type: AWS::EC2::KeyPair::KeyName
+    ConstraintDescription: must be the name of an existing EC2 KeyPair.
+# 인스턴스에 사용할 AMI ID
+  LatestAmiId:
+    Description: (DO NOT CHANGE)
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/ami-amazon-linux-latest/al2023-ami-minimal-kernel-default-x86_64'
+    AllowedValues:
+      - /aws/service/ami-amazon-linux-latest/al2023-ami-minimal-kernel-default-x86_64
+
+
+Resources:
+
+#VPC
+  EksWorkVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 192.168.0.0/16
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub eks-work-VPC
+
+#탄력적 IP
+  ElasticIPAddress:
+    Type: "AWS::EC2::EIP"
+    Properties: 
+      Domain: "vpc"
+
+#나트게이트웨이
+  NatGateway:
+    Type: "AWS::EC2::NatGateway"
+    Properties: 
+      AllocationId: !GetAtt ElasticIPAddress.AllocationId
+      SubnetId: !Ref WorkerSubnet1  # 보통 퍼블릭 서브넷에 배치합니다.
+      Tags:
+        - Key: Name
+          Value: !Sub eks-work-NatGateway
+
+#클러스터 보안그룹
+  WorkerNodeSecurityGroup:
+    Type: "AWS::EC2::SecurityGroup"
+    Properties: 
+      GroupDescription: "Security Group for EKS Worker Nodes"
+      VpcId: !Ref EksWorkVPC
+      SecurityGroupIngress:
+        - IpProtocol: "-1"
+          FromPort: -1
+          ToPort: -1
+          CidrIp: "0.0.0.0/0"
+      Tags:
+        - Key: Name
+          Value: !Sub eks-work-WorkerNodeSG
+
+#배스천호스트 보안그룹
+  BastionHostSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: "Security Group for Bastion Host"
+      VpcId: !Ref EksWorkVPC
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+      Tags:
+        - Key: Name
+          Value: !Sub eks-work-BastionSG
+
+
+#워커노드1 서브넷
+  WorkerSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: ap-northeast-2a
+      CidrBlock: 192.168.11.0/24
+      VpcId: !Ref EksWorkVPC
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub eks-work-WorkerSubnet1
+
+#워커노드2 서브넷
+  WorkerSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: ap-northeast-2c
+      CidrBlock: 192.168.12.0/24
+      VpcId: !Ref EksWorkVPC
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub eks-work-WorkerSubnet2
+
+#배스천호스트 서브넷
+  BatsionSN1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      AvailabilityZone: ap-northeast-2a
+      CidrBlock: 192.168.0.0/24
+      VpcId: !Ref EksWorkVPC
+      MapPublicIpOnLaunch: true
+      Tags:
+        - Key: Name
+          Value: !Sub eks-work-BastionSN1
+
+#IGW
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+
+#IGW-VPC 연결
+  VPCGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId: !Ref InternetGateway
+      VpcId: !Ref EksWorkVPC
+
+#클러스터 라우팅테이블
+  clusterRoute:
+    Type: "AWS::EC2::Route"
+    Properties: 
+      RouteTableId: !Ref clusterRouteTable
+      DestinationCidrBlock: "0.0.0.0/0"
+      NatGatewayId: !Ref NatGateway
+
+  clusterRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref EksWorkVPC
+      Tags:
+        - Key: Name
+          Value: !Sub eks-work-ClusterRouteTable
+
+  clusterSN1RouteAsso:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref WorkerSubnet1
+      RouteTableId: !Ref clusterRouteTable
+
+  clusterSN2RouteAsso:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref WorkerSubnet2
+      RouteTableId: !Ref clusterRouteTable
+
+#배스천호스트 IAM 정책
+  BastionRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service: "ec2.amazonaws.com"
+            Action: "sts:AssumeRole"
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
+        - "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
+        - "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
+
+#배스천호스트 프로필
+  EksNodeInstanceProfile:
+    Type: "AWS::IAM::InstanceProfile"
+    Properties:
+      Roles:
+        - !Ref BastionRole
+
+#배스천호스트 라우팅테이블
+  BastionSubnetRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref EksWorkVPC
+      Tags:
+        - Key: Name
+          Value: !Sub eks-work-BastionRouteTable
+
+  BastionSubnetRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref BastionSubnetRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  BastionSubnetRouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref BatsionSN1
+      RouteTableId: !Ref BastionSubnetRouteTable
+
+# 배스천호스트
+  BastionHost:
+    Type: AWS::EC2::Instance
+    DependsOn:
+      - EksCluster
+      - EksNodeInstanceProfile
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: t2.micro
+      SubnetId: !Ref BatsionSN1
+      KeyName: !Ref BastionKeyName
+      SecurityGroupIds:
+        - !Ref BastionHostSecurityGroup
+      IamInstanceProfile: !Ref EksNodeInstanceProfile
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash
+          mkdir -p /home/ec2-user/.kube
+          curl -o kubectl https://dl.k8s.io/release/v1.28.0/bin/linux/amd64/kubectl
+          chmod +x ./kubectl
+          sudo mv ./kubectl /usr/bin/kubectl
+          sudo -u ec2-user aws eks update-kubeconfig --region ap-northeast-2 --name eks-work-Cluster
+      Tags:
+        - Key: Name
+          Value: !Sub eks-work-BastionHost  
+
+#클러스터 생성
+  EksCluster:
+    Type: "AWS::EKS::Cluster"
+    Properties: 
+      Name: !Sub eks-work-Cluster
+      Version: "1.28"  # 클러스터 버전
+      RoleArn: !GetAtt EksClusterRole.Arn
+      ResourcesVpcConfig:
+        SubnetIds: 
+          - !Ref WorkerSubnet1
+          - !Ref WorkerSubnet2
+        EndpointPublicAccess: false
+        EndpointPrivateAccess: true
+
+  EksClusterRole:
+    Type: "AWS::IAM::Role"
+    Properties: 
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service: "eks.amazonaws.com"
+            Action: "sts:AssumeRole"
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy"
+        - "arn:aws:iam::aws:policy/AmazonEKSServicePolicy"
+
+  EksNodeGroup:
+    Type: "AWS::EKS::Nodegroup"
+    Properties:
+      ClusterName: !Ref EksCluster
+      NodegroupName: !Sub eks-work-NodeGroup
+      NodeRole: !GetAtt EksNodeRole.Arn
+      Subnets:
+        - !Ref WorkerSubnet1
+        - !Ref WorkerSubnet2
+      ScalingConfig:
+        DesiredSize: 2
+        MinSize: 1
+        MaxSize: 3
+      InstanceTypes:
+        - t3.medium
+
+#클러스터 IAM 정책
+  EksNodeRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: "Allow"
+            Principal:
+              Service: "ec2.amazonaws.com"
+            Action: "sts:AssumeRole"
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
+        - "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
+        - "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
+
+
+Outputs:
+  VPC:
+    Value: !Ref EksWorkVPC
+
+  WorkerSubnets:
+    Value: !Join
+      - ","
+      - [!Ref WorkerSubnet1, !Ref WorkerSubnet2]
+
+  RouteTable:
+    Value: !Ref clusterRouteTable
