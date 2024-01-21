@@ -14,9 +14,7 @@ Parameters:
     AllowedValues:
       - /aws/service/ami-amazon-linux-latest/al2023-ami-minimal-kernel-default-x86_64
 
-
 Resources:
-
 #VPC
   EksWorkVPC:
     Type: AWS::EC2::VPC
@@ -39,7 +37,7 @@ Resources:
     Type: "AWS::EC2::NatGateway"
     Properties: 
       AllocationId: !GetAtt ElasticIPAddress.AllocationId
-      SubnetId: !Ref WorkerSubnet1  # 보통 퍼블릭 서브넷에 배치합니다.
+      SubnetId: !Ref BatsionSN1
       Tags:
         - Key: Name
           Value: !Sub eks-work-NatGateway
@@ -47,17 +45,31 @@ Resources:
 #클러스터 보안그룹
   WorkerNodeSecurityGroup:
     Type: "AWS::EC2::SecurityGroup"
-    Properties: 
+    Properties:
       GroupDescription: "Security Group for EKS Worker Nodes"
       VpcId: !Ref EksWorkVPC
       SecurityGroupIngress:
-        - IpProtocol: "-1"
-          FromPort: -1
-          ToPort: -1
-          CidrIp: "0.0.0.0/0"
+        - IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          SourceSecurityGroupId: !GetAtt BastionHostSecurityGroup.GroupId
+        - IpProtocol: tcp
+          FromPort: 10250
+          ToPort: 10250
+          SourceSecurityGroupId: !GetAtt BastionHostSecurityGroup.GroupId
+        - IpProtocol: tcp
+          FromPort: 53
+          ToPort: 53
+          SourceSecurityGroupId: !GetAtt BastionHostSecurityGroup.GroupId
+        - IpProtocol: udp
+          FromPort: 53
+          ToPort: 53
+          SourceSecurityGroupId: !GetAtt BastionHostSecurityGroup.GroupId
       Tags:
         - Key: Name
           Value: !Sub eks-work-WorkerNodeSG
+
+
 
 #배스천호스트 보안그룹
   BastionHostSecurityGroup:
@@ -165,6 +177,8 @@ Resources:
         - "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
         - "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
         - "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
+        - "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy"
+        - "arn:aws:iam::aws:policy/AmazonEKSServicePolicy"
 
 #배스천호스트 프로필
   EksNodeInstanceProfile:
@@ -212,26 +226,45 @@ Resources:
       UserData:
         Fn::Base64: !Sub |
           #!/bin/bash
-          mkdir -p /home/ec2-user/.kube
-          curl -o kubectl https://dl.k8s.io/release/v1.28.0/bin/linux/amd64/kubectl
-          chmod +x ./kubectl
-          sudo mv ./kubectl /usr/bin/kubectl
-          sudo -u ec2-user aws eks update-kubeconfig --region ap-northeast-2 --name eks-work-Cluster
+          yum -y install wget
+          sudo -u ec2-user bash -c 'wget -O /home/ec2-user/kubectl https://dl.k8s.io/release/v1.28.0/bin/linux/amd64/kubectl'
+          sudo -u ec2-user chmod +x /home/ec2-user/kubectl
+          mv /home/ec2-user/kubectl /usr/bin/kubectl
+          sudo -u ec2-user aws eks update-kubeconfig --region ${AWS::Region} --name eks-work-Cluster
+          chmod -R ec2-user:ec2-user /home/ec2-user/
+
+          cat <<EoF > /home/ec2-user/aws-auth-patch.yaml
+          apiVersion: v1
+          kind: ConfigMap
+          metadata:
+            name: aws-auth
+            namespace: kube-system
+          data:
+            mapRoles: |
+              - rolearn: ${BastionRole.Arn}
+                username: system:node:{{EC2PrivateDNSName}}
+                groups:
+                  - system:bootstrappers
+                  - system:nodes
+          EoF
+          kubectl patch configmap/aws-auth -n kube-system --patch "$(cat /home/ec2-user/aws-auth-patch.yaml)"
       Tags:
         - Key: Name
-          Value: !Sub eks-work-BastionHost  
+          Value: !Sub eks-work-BastionHos
 
 #클러스터 생성
   EksCluster:
     Type: "AWS::EKS::Cluster"
-    Properties: 
+    Properties:
       Name: !Sub eks-work-Cluster
-      Version: "1.28"  # 클러스터 버전
+      Version: "1.28"
       RoleArn: !GetAtt EksClusterRole.Arn
       ResourcesVpcConfig:
-        SubnetIds: 
+        SubnetIds:
           - !Ref WorkerSubnet1
           - !Ref WorkerSubnet2
+        SecurityGroupIds:
+          - !Ref WorkerNodeSecurityGroup
         EndpointPublicAccess: false
         EndpointPrivateAccess: true
 
@@ -249,6 +282,7 @@ Resources:
         - "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy"
         - "arn:aws:iam::aws:policy/AmazonEKSServicePolicy"
 
+#워커노드 생성
   EksNodeGroup:
     Type: "AWS::EKS::Nodegroup"
     Properties:
@@ -262,8 +296,11 @@ Resources:
         DesiredSize: 2
         MinSize: 1
         MaxSize: 3
-      InstanceTypes:
-        - t3.medium
+      RemoteAccess:
+        Ec2SshKey: !Ref BastionKeyName  # SSH 키 이름을 여기에 입력하세요
+        SourceSecurityGroups: 
+          - !Ref WorkerNodeSecurityGroup
+
 
 #클러스터 IAM 정책
   EksNodeRole:
@@ -280,16 +317,6 @@ Resources:
         - "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
         - "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
         - "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
-
-
-Outputs:
-  VPC:
-    Value: !Ref EksWorkVPC
-
-  WorkerSubnets:
-    Value: !Join
-      - ","
-      - [!Ref WorkerSubnet1, !Ref WorkerSubnet2]
-
-  RouteTable:
-    Value: !Ref clusterRouteTable
+        - "arn:aws:iam::aws:policy/AmazonRoute53FullAccess"
+        - "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy"
+        - "arn:aws:iam::aws:policy/AmazonEKSServicePolicy"
