@@ -110,7 +110,7 @@ resource "aws_route_table" "cluster_route_table" {
 
   route {
     cidr_block     = "0.0.0.0/0"
-    nat_gateway_id = aws_nat_gateway.nat_gateway.id
+    nat_gateway_id = aws_nat_gateway.bastion_nat_gateway.id
   }
   tags = {
     Name = "eks-work-ClusterRouteTable"
