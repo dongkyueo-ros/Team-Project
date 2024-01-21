@@ -58,7 +58,7 @@ Slack 에서 메시지 수신할 채널 생성
 4. Jenkins CI 앱 추가 하고 나오는 토큰 저장하기(jenkins에서 자격증명으로 사용해야함)
 
 # 프로젝트 생성
-1. 아래 플러그인 설치
+1. 플러그인 설치 후 진행
 2. 젠킨스 관리 클릭 > System 클릭 > credential add 클릭 > Username with password 변경 > Username에 깃허브 ID, Password에 깃허브 패스워드(토큰) 입력 후 저장
 3. 젠킨스 관리 클릭 > System 클릭 > credential add 클릭 > aws credentials 변경 > id에 jenkins파일에서 입력한 자격증명이름 으로 변경(ex. aws_connection)  >  Access key ID와 Secret access key 입력 후 저장
 4. 젠킨스 관리 클릭 > System 클릭 > Slack부분의 Workspace 입력 > credential add 클릭 >  Secret text로 변경 후 passwrod에 slack 토큰 입력 후 저장 > Credential에 방금 생성한 자격증명 정보 선택 후 Test > 성공 출력되면 저장
