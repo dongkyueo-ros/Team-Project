@@ -42,6 +42,14 @@ sudo usermod -aG docker jenkins
 2. 퍼블릭IP:8080 으로 접속
 3. 접속 포트 변경이 필요할 경우 /usr/lib/systemd/system/jenkins.service 에서 변경하면됨 해당경로로 조회가 안된다면 systemctl status jenkins 후에 결과 긁어서 GPT한테 물어보면 설정파일 어딘지 알려줌
 
+# 플러그인 설치
+1. GitHub Integration
+2. AWS Credentials
+3. S3 Publisher
+4. Pipeline Utility Steps
+5. Slack Notification
+6. ssh agent
+
 #슬랙 연동
 1. Slack 토큰 생성
 Slack 에서 메시지 수신할 채널 생성
@@ -67,14 +75,6 @@ Slack 에서 메시지 수신할 채널 생성
 1. 커밋파일 백업할 s3버킷이름수정
 2. 메시지보낼 slack 채널명 수정
 3. bastion 호스트 ip 수정
-
-# 플러그인 설치
-1. GitHub Integration
-2. AWS Credentials
-3. S3 Publisher
-4. Pipeline Utility Steps
-5. Slack Notification
-6. ssh agent
 
 
 
