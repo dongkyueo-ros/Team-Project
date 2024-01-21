@@ -45,10 +45,9 @@ sudo usermod -aG docker jenkins
 # 플러그인 설치
 1. GitHub Integration
 2. AWS Credentials
-3. S3 Publisher
-4. Pipeline Utility Steps
-5. Slack Notification
-6. ssh agent
+3. Pipeline Utility Steps
+4. Slack Notification
+5. ssh agent
 
 #슬랙 연동
 1. Slack 토큰 생성
