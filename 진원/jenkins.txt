@@ -60,15 +60,15 @@ Slack 에서 메시지 수신할 채널 생성
 1. 플러그인 설치 후 진행
 2. 젠킨스 관리 클릭 > System 클릭 > credential add 클릭 > Username with password 변경 > Username에 깃허브 ID, Password에 깃허브 패스워드(토큰) 입력 후 저장
 3. 젠킨스 관리 클릭 > System 클릭 > credential add 클릭 > aws credentials 변경 > id에 jenkins파일에서 입력한 자격증명이름 으로 변경(ex. aws_connection)  >  Access key ID와 Secret access key 입력 후 저장
-4. 젠킨스 관리 클릭 > System 클릭 > Slack부분의 Workspace 입력 > credential add 클릭 >  Secret text로 변경 후 passwrod에 slack 토큰 입력 후 저장 > Credential에 방금 생성한 자격증명 정보 선택 후 Test > 성공 출력되면 저장
-5. 젠킨스 관리 클릭 > System 클릭 > credential add 클릭 > ssh with username with private key 변경 >  ID에 bastion_id 입력, username에 ec2-user 입력, Private Key - Enter directly 선택후 pem 키파일 내용 붙여넣기 후 저장
-5. 새로운 Item 클릭 > 프로젝트 이름 입력 후 Pipeline 선택
-6. Build Triggers 의 GitHub hook trigger for GITScm polling 체크
-7. Pipeline 부분의 Definition을 Pipeline script from SCM로 변경
-8. SCM을 Git으로 변경
-9. 레포지토리 url 입력
-10. Credentials 에는 2번에서 생성한 Git 자격증명으로 변경
-11. Branches to build 에는 깃 레포지토리의 브런치로 변경 (ex. */main)
+4. 젠킨스 관리 클릭 > System 클릭 > credential add 클릭 > ssh with username with private key 변경 >  ID에 bastion_id 입력, username에 ec2-user 입력, Private Key - Enter directly 선택후 pem 키파일 내용 붙여넣기 후 저장
+5. 젠킨스 관리 클릭 > System 클릭 > Slack부분의 Workspace 입력 > credential add 클릭 >  Secret text로 변경 후 passwrod에 slack 토큰 입력 후 저장 > Credential에 방금 생성한 자격증명 정보 선택 후 Test > 성공 출력되면 저장
+6. 새로운 Item 클릭 > 프로젝트 이름 입력 후 Pipeline 선택
+7. Build Triggers 의 GitHub hook trigger for GITScm polling 체크
+8. Pipeline 부분의 Definition을 Pipeline script from SCM로 변경
+9. SCM을 Git으로 변경
+10. 레포지토리 url 입력
+11. Credentials 에는 2번에서 생성한 Git 자격증명으로 변경
+12. Branches to build 에는 깃 레포지토리의 브런치로 변경 (ex. */main)
 
 #jenkinsfile 수정
 1. 커밋파일 백업할 s3버킷이름수정
