@@ -1,0 +1,272 @@
+Parameters:
+
+# EC2 KeyPair 이름 지정
+  KeyName:
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instances. Linked to AWS Parameter
+    Type: AWS::EC2::KeyPair::KeyName
+    ConstraintDescription: must be the name of an existing EC2 KeyPair.
+
+# 인스턴스에 사용할 AMI ID
+  LatestAmiId:
+    Description: (DO NOT CHANGE)
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ami-amazon-linux-latest/al2023-ami-minimal-kernel-default-x86_64
+    AllowedValues:
+      - /aws/service/ami-amazon-linux-latest/al2023-ami-minimal-kernel-default-x86_64
+
+# S3 버킷 이름 입력 (고유해야 한다)
+  BucketName:
+    Type: String
+    Description: S3 Bucket name
+    AllowedPattern: '^[a-zA-Z0-9-_]*$' # 알파벳, 대소문자, 숫자, -, _ 허용하도록 정의
+    ConstraintDescription: Alphanumeric characters only
+
+Resources:
+
+# S3 버킷 생성 (Jenkins backup)
+  JenkinsS3Bucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref BucketName
+      AccessControl: Private
+      VersioningConfiguration:
+        Status: Enabled
+      Tags:
+        - Key: Name
+          Value: JenkinsS3Bucket
+
+# VPC 생성
+  JenkinsVPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 20.0.0.0/16
+      Tags:
+        - Key: Name
+          Value: Jenkins-VPC
+
+# 인터넷 게이트웨이 생성
+  JenkinsIGW:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: Jenkins-IGW
+
+# 인터넷 게이트웨이 연결
+  JenkinsIGWAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref JenkinsVPC
+      InternetGatewayId: !Ref JenkinsIGW
+
+# 라우팅 테이블 생성
+  JenkinsRT:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref JenkinsVPC
+      Tags:
+        - Key: Name
+          Value: Jenkins-RT
+
+# 라우터 연결
+  DefaultPublicRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref JenkinsRT
+      DestinationCidrBlock: 0.0.0.0/0 # 모든 트래픽이 아닌 필요한 경우만 허용하게 변경
+      GatewayId: !Ref JenkinsIGW
+
+# 서브넷 생성
+  JenkinsSN:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref JenkinsVPC
+      CidrBlock: 20.0.0.0/24
+      AvailabilityZone: ap-northeast-2a
+      Tags:
+        - Key: Name
+          Value: Jenkins-Subnet
+
+# 라우팅 테이블 서브넷 연결
+  PublicSNRouteTableAssociation1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref JenkinsRT
+      SubnetId: !Ref JenkinsSN
+
+# Jenkins 보안 그룹 생성 | SSH,HTTP,8080 대상 0.0.0.0/0
+  JenkinsSG:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Enable SSH access via port 22
+      VpcId: !Ref JenkinsVPC
+      Tags:
+        - Key: Name
+          Value: Jenkins-SG
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: 0.0.0.0/0
+        - IpProtocol: tcp
+          FromPort: 8080
+          ToPort: 8080
+          CidrIp: 0.0.0.0/0
+
+# IAM 역할 생성
+  JenkinsS3FullAccessRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: JenkinsS3FullAccessRole
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: S3FullAccessPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:*
+                Resource: !Sub arn:aws:s3:::${JenkinsS3Bucket}/*
+        - PolicyName: EC2ContainerRegistryFullAccessPolicy
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ecr:GetAuthorizationToken
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:GetRepositoryPolicy
+                  - ecr:DescribeRepositories
+                  - ecr:ListImages
+                  - ecr:DescribeImages
+                  - ecr:BatchGetImage
+                  - ecr:InitiateLayerUpload
+                  - ecr:UploadLayerPart
+                  - ecr:CompleteLayerUpload
+                  - ecr:PutImage
+                Resource: '*'
+        - PolicyName: AmazonEC2FullAccess
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:*
+                Resource: '*'
+        - PolicyName: AmazonVPCFullAccess
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ec2:CreateVpc
+                  - ec2:DeleteVpc
+                  - ec2:ModifyVpcAttribute
+                  - ec2:DescribeVpcs
+                  - ec2:CreateSubnet
+                  - ec2:DeleteSubnet
+                  - ec2:ModifySubnetAttribute
+                  - ec2:DescribeSubnets
+                  - ec2:CreateInternetGateway
+                  - ec2:DeleteInternetGateway
+                  - ec2:AttachInternetGateway
+                  - ec2:DetachInternetGateway
+                  - ec2:DescribeInternetGateways
+                  - ec2:CreateRouteTable
+                  - ec2:DeleteRouteTable
+                  - ec2:CreateRoute
+                  - ec2:DeleteRoute
+                  - ec2:DescribeRouteTables
+                  - ec2:AssociateRouteTable
+                  - ec2:DisassociateRouteTable
+                Resource: '*'
+        - PolicyName: AmazonEKSFullAccess
+          PolicyDocument:
+            Version: 2012-10-17
+              Statement:
+              - Effect: Allow
+                Action:
+                  - eks:*
+                Resource: '*'
+        - PolicyName: IAMFullAccess
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - iam:*
+                Resource: '*'
+        - PolicyName: AmazonRoute53FullAccess
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - route53:*
+                Resource: '*'
+  
+# IAM 역할과 인스턴스 연결
+  JenkinsS3FullAccessRoleInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: JenkinsS3FullAccessRoleInstanceProfile
+      Roles:
+        - !Ref JenkinsS3FullAccessRole
+
+# Jenkins 인스턴스 생성
+  JenkinsEC2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref LatestAmiId
+      InstanceType: t2.micro 
+      KeyName: !Ref KeyName
+      IamInstanceProfile: !Ref JenkinsS3FullAccessRoleInstanceProfile
+      NetworkInterfaces:
+        - DeviceIndex: 0
+          SubnetId: !Ref JenkinsSN
+          GroupSet:
+          - !Ref JenkinsSG
+          AssociatePublicIpAddress: true
+      Tags:
+        - Key: Name
+          Value: Jenkins-EC2
+      UserData:
+        Fn::Base64: |
+          #!/bin/bash
+          hostnamectl set-hostname "Jenkins-EC2-$(hostname -I)"
+          yum update -y
+          yum install java-11-amazon-corretto-devel wget -y
+          wget -O /etc/yum.repos.d/jenkins.repo http://pkg.jenkins-ci.org/redhat-stable/jenkins.repo
+          rpm --import https://pkg.jenkins.io/redhat-stable/jenkins.io-2023.key
+          yum clean packages
+          yum install -y jenkins docker
+          systemctl enable --now docker
+          sudo usermod -aG docker jenkins
+
+          echo "JENKINS_JAVA_OPTIONS=\"-Djava.awt.headless=true -Dhttps.protocols=TLSv1.2\"" | sudo tee -a /usr/lib/systemd/system/jenkins.service
+          systemctl restart jenkins.service
+             
+          mkdir /var/spool/swap
+          touch /var/spool/swap/swapfile
+          dd if=/dev/zero of=/var/spool/swap/swapfile count=2048000 bs=1024
+
+          chmod 600 /var/spool/swap/swapfile
+          mkswap /var/spool/swap/swapfile
+          swapon /var/spool/swap/swapfile
+          echo "/var/spool/swap/swapfile    none    swap    defaults    0 0" >> /etc/fstab
+
+          yum install -y yum-utils shadow-utils
+          yum-config-manager --add-repo https://rpm.releases.hashicorp.com/AmazonLinux/hashicorp.repo
+          yum -y install terraform
