@@ -43,11 +43,11 @@ sudo usermod -aG docker jenkins
 3. 접속 포트 변경이 필요할 경우 /usr/lib/systemd/system/jenkins.service 에서 변경하면됨 해당경로로 조회가 안된다면 systemctl status jenkins 후에 결과 긁어서 GPT한테 물어보면 설정파일 어딘지 알려줌
 
 # 플러그인 설치
-1. GitHub Integration
-2. AWS Credentials
-3. Pipeline Utility Steps
-4. Slack Notification
-5. ssh agent
+GitHub Integration
+AWS Credentials
+Pipeline Utility Steps
+Slack Notification
+ssh agent
 
 #슬랙 연동
 1. Slack 토큰 생성
